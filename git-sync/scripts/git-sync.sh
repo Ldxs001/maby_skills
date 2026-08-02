@@ -16,8 +16,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -W)"
 SKILLS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd -W)"
 WORKSPACE_ROOT="$(cd "$SKILLS_DIR/.." && pwd -W)"
-# 从 _paths.py 读取统一管理的仓库路径
-WORK_REPO="$(python -c "import sys; sys.path.insert(0,'$SCRIPT_DIR'); from _paths import WORK_REPO; print(WORK_REPO.as_posix())" 2>/dev/null || echo "$HOME/.workbuddy/workbuddy-skills")"
+# 从 _paths.py 读取统一管理的仓库路径（v2.37.0 多仓库：按类型解析）
+WORK_REPO="$(python -c "import sys; sys.path.insert(0,'$SCRIPT_DIR'); from _paths import get_work_repo; print(get_work_repo('skill').as_posix())" 2>/dev/null || echo "$HOME/WorkBuddy/maby_skills")"
 NAME="${1:-}"
 VERSION="${2:-}"
 SKIP_MARKET=false
@@ -36,11 +36,17 @@ detect_type() {
     local name="$1"
     if [ -f "$SKILLS_DIR/$name/_meta.json" ]; then
         echo "skill"
-    elif [ -d "$WORK_REPO/agent/$name" ]; then
+    elif [ -d "$HOME/WorkBuddy/maby_agent/$name" ] || [ -d "$WORK_REPO/../maby_agent/$name" ]; then
         echo "agent"
     else
         echo "unknown"
     fi
+}
+
+# 按类型解析目标仓库（v2.37.0 多仓库）
+resolve_repo() {
+    local ptype="$1"
+    python -c "import sys; sys.path.insert(0,'$SCRIPT_DIR'); from _paths import get_repo_config; import json; print(json.dumps(get_repo_config('$ptype'), ensure_ascii=False))"
 }
 
 # 处理 all 模式：遍历所有项目
@@ -55,7 +61,7 @@ if [ "$NAME" = "all" ]; then
         echo ">>> 技能: $s"
         bash "$0" "$s" "$@" --skip-market 2>&1 || true
     done
-    for agent in "$WORK_REPO/agent"/*/; do
+    for agent in "$HOME/WorkBuddy/maby_agent"/*/; do
         [ ! -d "$agent" ] && continue
         a=$(basename "$agent")
         echo ""
@@ -81,21 +87,26 @@ if [ "$TYPE" = "unknown" ]; then
 fi
 echo "  类型: $TYPE"
 
-# 按类型设置源路径
+# 按类型设置源路径（v2.37.0 多仓库）
 if [ "$TYPE" = "skill" ]; then
     SRC_DIR="$SKILLS_DIR/$NAME"
-    WORK_REPO_DIR="skills/$NAME"
+    REPO_CFG=$(resolve_repo "skill")
+    WORK_REPO_DIR="$NAME"   # maby_skills 仓库根下直接是技能目录
     META_FILE="$SRC_DIR/_meta.json"
 elif [ "$TYPE" = "agent" ]; then
-    SRC_DIR="$SKILLS_DIR/../agent/$NAME"
-    WORK_REPO_DIR="agent/$NAME"
-    # 兼容：如果 ~/.workbuddy/agent/ 不存在，从 $WORK_REPO 直接读取
+    SRC_DIR="$HOME/WorkBuddy/maby_agent/$NAME"
+    REPO_CFG=$(resolve_repo "agent")
+    WORK_REPO_DIR="$NAME"   # maby_agent 仓库根下直接是智能体目录
+    # 兼容：如果 maby_agent 不存在，从老仓库直接读取
     if [ ! -d "$SRC_DIR" ]; then
-        SRC_DIR="$WORK_REPO/$WORK_REPO_DIR"
+        SRC_DIR="$WORK_REPO/../maby_agent/$NAME"
     fi
     # 自动检测 __init__.py（不硬编码 rag_assistant/）
     META_FILE=$(python -c "import sys; sys.path.insert(0,'$SCRIPT_DIR'); from pathlib import Path; d=Path('$SRC_DIR'); fs=sorted(d.rglob('__init__.py')); [print(str(f)) for f in fs if f.parent!=d and '__version__' in f.read_text(errors='ignore')]" 2>/dev/null | head -1)
 fi
+# 从仓库配置解析目标仓库路径与名称
+REPO_NAME=$(echo "$REPO_CFG" | python -c "import sys,json; print(json.load(sys.stdin).get('name','maby_skills'))" 2>/dev/null || echo "maby_skills")
+WORK_REPO=$(echo "$REPO_CFG" | python -c "import sys,json; print(json.load(sys.stdin).get('path',''))" 2>/dev/null || echo "$HOME/WorkBuddy/maby_skills")
 
 SKILL_NAME="$NAME"
 
@@ -166,7 +177,6 @@ fi
 # 路径配置
 SKILL_MD="$SRC_DIR/SKILL.md"
 META_FILE_JSON="$SRC_DIR/_meta.json"
-REPO_NAME="workbuddy-skills"
 DIST_DIR="$SKILLS_DIR/.dist"
 ZIP_NAME="${SKILL_NAME}-v${VERSION}.zip"
 ZIP_FILE="$DIST_DIR/$ZIP_NAME"

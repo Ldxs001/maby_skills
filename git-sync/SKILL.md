@@ -2,7 +2,7 @@
 name: git-sync
 slug: git-sync
 displayName: git-sync
-version: 2.36.0
+version: 2.37.0
 author: wUwproject
 license: MIT
 description: 全平台统一发布工具。支持 skills 和 agents 的 Gitee/GitHub/ClawHub/SkillHub/PyPI 同步与 Release 创建，LLM 驱动的文件过滤与脱敏。
@@ -31,7 +31,7 @@ data_dir_compliance: true
 - **`all` 模式** — `git-sync all` 遍历 `skills/` 和 `agent/` 全部项目
 - **网络依赖** — 推送 Gitee/GitHub/ClawHub/SkillHub/PyPI 需要可用网络连接，超时阈值 60 秒
 - **冲突不自动合并** — git merge 冲突需人工介入
-- **固定仓库** — 同步目标固定为 `~/.workbuddy/workbuddy-skills/`
+- **多仓库模型（v2.37.0）** — 按项目类型解析目标仓库：skill → `maby_skills`（`~/WorkBuddy/maby_skills`），agent → `maby_agent`（`~/WorkBuddy/maby_agent`）。仓库注册表在 `config.json` 的 `repos` 字段
 - **参数约束** — 项目名不含路径分隔符，version 格式严格 x.y.z
 - **仓库规模** — 支持 1-50 个项目，每个 ≤ 500MB
 - **数据持久性** — manifest.json 记录同步状态，不备份远程仓库数据

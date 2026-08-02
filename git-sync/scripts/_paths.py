@@ -27,8 +27,61 @@ CACHE_DIR    = SKILLS_ROOT / ".standardization" / "git-sync" / "cache"
 TEMP_DIR     = STD_DIR / "temp"
 
 # ── 仓库与分发目录 ──────────────────────────────────
-WORK_REPO    = Path.home() / ".workbuddy" / "workbuddy-skills"
+# 多仓库模型（v2.37.0）：按项目类型解析目标仓库
+# 仓库注册表在 config.json 的 "repos" 字段（git-sync 数据目录）
 DIST_DIR     = SKILLS_ROOT / ".dist"
+
+# ── 清单与配置文件 ──────────────────────────────────
+MANIFEST_FILE = SKILLS_ROOT / ".standardization" / "git-sync" / "data" / "manifest.json"
+CONFIG_FILE   = SKILLS_ROOT / ".standardization" / "git-sync" / "data" / "config.json"
+
+# 默认仓库名（类型 → 仓库名）
+DEFAULT_REPO_BY_TYPE = {
+    "skill": "maby_skills",
+    "agent": "maby_agent",
+}
+
+def load_config():
+    """读取 git-sync config.json（含多仓库注册表）"""
+    import json
+    cfg = {}
+    if CONFIG_FILE.exists():
+        try:
+            cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            cfg = {}
+    return cfg
+
+def get_repo_name(project_type: str) -> str:
+    """按项目类型返回目标仓库名（skill→maby_skills, agent→maby_agent）"""
+    cfg = load_config()
+    repos = cfg.get("repos", {})
+    for name, rc in repos.items():
+        if rc.get("type") == project_type:
+            return name
+    return DEFAULT_REPO_BY_TYPE.get(project_type, "maby_skills")
+
+def get_repo_config(project_type: str) -> dict:
+    """按项目类型返回仓库配置 {name, path, gitee, github, readme}"""
+    cfg = load_config()
+    repos = cfg.get("repos", {})
+    repo_name = get_repo_name(project_type)
+    rc = repos.get(repo_name, {})
+    return {
+        "name": repo_name,
+        "path": rc.get("path", str(Path.home() / ".workbuddy" / "workbuddy-skills")),
+        "gitee": rc.get("gitee", {}),
+        "github": rc.get("github", {}),
+        "readme": rc.get("readme", {}),
+    }
+
+def get_work_repo(project_type: str):
+    """按项目类型返回工作仓库路径（skill→maby_skills, agent→maby_agent）"""
+    rc = get_repo_config(project_type)
+    return Path(rc["path"])
+
+# 兼容旧引用：WORK_REPO 指向 skill 类型仓库（maby_skills）
+WORK_REPO    = get_work_repo("skill")
 README_FILE  = WORK_REPO / "README.md"
 
 # ── 清单与配置文件 ──────────────────────────────────

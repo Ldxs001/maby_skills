@@ -22,6 +22,7 @@ from _paths import (
     TEMP_DIR,
     temp_scan_path, temp_scan_decisions_path,
     temp_filter_scan_path, temp_filter_decisions_path,
+    get_work_repo, get_repo_config, get_repo_name,
 )
 
 # ── 编码安全 ─────────────────────────────────────────────
@@ -121,8 +122,10 @@ def run_git(*args, workdir=None, check=True):
         return ret
 
 # ── 步骤 1：检查维护清单 ─────────────────────────────────────────────────────
-def step_manifest(skill_name: str, version: str, repo_name="workbuddy-skills"):
+def step_manifest(skill_name: str, version: str, repo_name=None):
     log(1, 8, "检查维护清单...")
+    if repo_name is None:
+        repo_name = get_repo_name("skill")  # v2.37.0 动态仓库名
     manifest_py = SCRIPT_DIR / "manifest.py"
     if not manifest_py.exists():
         log(1, 8, "manifest.py 不存在，跳过", "skip")
@@ -274,8 +277,12 @@ def step_skill_audit(skill_name: str, skills_dir: Path, manifest_file: Path,
     manifest_ver = ""
     try:
         mf = json.loads(manifest_file.read_text(encoding="utf-8"))
-        items = mf.get("repos", {}).get("workbuddy-skills", {}).get("items", {})
-        manifest_ver = items.get(skill_name, {}).get("version", "")
+        # v2.37.0 多仓库：遍历所有仓库查找项目
+        for _repo_name, _repo_data in mf.get("repos", {}).items():
+            _items = _repo_data.get("items", {})
+            if skill_name in _items:
+                manifest_ver = _items[skill_name].get("version", "")
+                break
     except Exception:
         pass
 
@@ -580,9 +587,13 @@ def step_sensitive_scan(skill_name: str, repo_skill_dir: Path):
     return desensitized_files
 
 # ── 步骤 5：更新 README.md ─────────────────────────────────────────────────
-def step_update_readme(repo_name="workbuddy-skills"):
+def step_update_readme(repo_name=None, work_repo=None):
     log(5, 8, "更新 README.md...")
-    readme = WORK_REPO / "README.md"
+    if repo_name is None:
+        repo_name = get_repo_name("skill")  # v2.37.0 动态仓库名
+    if work_repo is None:
+        work_repo = WORK_REPO
+    readme = Path(work_repo) / "README.md"
     if not readme.exists():
         log(5, 8, "README.md 不存在，跳过", "skip")
         return
@@ -830,7 +841,9 @@ def step_commit_and_push(skill_name: str, version: str, work_repo_subdir: str = 
 # ── 步骤 6.7：更新清单中的上传状态 ──────────────────────────────────────
 def step_update_manifest_uploaded(skill_name: str, version: str,
                                   gitee_ok: bool, github_ok: bool,
-                                  repo_name="workbuddy-skills"):
+                                  repo_name=None):
+    if repo_name is None:
+        repo_name = get_repo_name("skill")  # v2.37.0 动态仓库名
     manifest_py = SCRIPT_DIR / "manifest.py"
     if not manifest_py.exists():
         return
@@ -1242,8 +1255,8 @@ if os.path.exists(readme_p):
     with open(readme_p,encoding="utf-8") as f: LD=f.read()
 setup(name="{pypi_name}",version=V,description="{name} — AI Agent",
       long_description=LD,long_description_content_type="text/markdown",
-      author="Ldxs (wUwproject)",author_email="contact@example.com",
-      url="https://github.com/Ldxs001/workbuddy-skills",
+      author="Ldxs (wUwproject)",author_email="wuwofc@yeah.net",
+      url="https://github.com/Ldxs001/maby_agent",
       packages=["{pkg_dir}"],include_package_data=True,
       python_requires=">=3.10",install_requires=REQ,
       entry_points={{"console_scripts":["{pypi_name}=main:main"]}},
@@ -1281,7 +1294,8 @@ setup(name="{pypi_name}",version=V,description="{name} — AI Agent",
     shutil.rmtree(build_dir,ignore_errors=True)
 
 def step_clawhub_publish(name: str, version: str):
-    sd = WORK_REPO / "skills" / name
+    # v2.37.0 多仓库：skill 仓库根下直接是技能目录
+    sd = get_work_repo("skill") / name
     if not sd.is_dir(): print("  ❌ 技能目录不存在"); return
     meta = json.loads((sd/"_meta.json").read_text(encoding="utf-8"))
     slug = meta.get("slug",name)
@@ -1293,7 +1307,8 @@ def step_clawhub_publish(name: str, version: str):
     else: print(f"  ⚠️  ClawHub: {r.stderr[:200]}")
 
 def step_skillhub_publish(name: str, version: str):
-    sd = WORK_REPO / "skills" / name
+    # v2.37.0 多仓库：skill 仓库根下直接是技能目录
+    sd = get_work_repo("skill") / name
     if not sd.is_dir(): print("  ❌ 技能目录不存在"); return
     cli = Path.home() / ".skillhub" / "skills_store_cli.py"
     if not cli.exists(): print("  ❌ SkillHub CLI 不存在"); return
@@ -1306,26 +1321,28 @@ def step_release_create(name: str, typ: str, version: str):
     """创建 GitHub + Gitee Release，源码包由平台自动生成"""
     log(9,8,f"创建 Release: {name} v{version}...")
 
-    # 从 config.json 读仓库名
+    # v2.37.0 多仓库：从 repos 配置按类型读取仓库名
     try:
         _cfg = json.load(open(CONFIG_FILE, encoding="utf-8"))
-        _g = _cfg.get("gitee", {})
-        _h = _cfg.get("github", {})
-        GITEE = f"{_g.get('user','wUwproject')}/{_g.get('repo','workbuddy-skills')}"
-        GITHUB = f"{_h.get('user','Ldxs001')}/{_h.get('repo','workbuddy-skills')}"
+        _rc = _cfg.get("repos", {}).get("maby_skills" if typ=="skill" else "maby_agent", {})
+        _g = _rc.get("gitee", {})
+        _h = _rc.get("github", {})
+        GITEE = f"{_g.get('user','wUwproject')}/{_g.get('repo','maby_skills')}"
+        GITHUB = f"{_h.get('user','Ldxs001')}/{_h.get('repo','maby_skills')}"
     except:
-        GITEE = "wUwproject/workbuddy-skills"
-        GITHUB = "Ldxs001/workbuddy-skills"
+        GITEE = "wUwproject/maby_skills"
+        GITHUB = "Ldxs001/maby_skills"
 
+    _rel_repo = get_work_repo(typ)
     tag = f"v{version}" if typ=="agent" else f"{name}-v{version}"
-    subprocess.run(["git","tag",tag],cwd=str(WORK_REPO),capture_output=True)
+    subprocess.run(["git","tag",tag],cwd=str(_rel_repo),capture_output=True)
     # 推送 PyPI 触发 tag（GitHub Actions Trusted Publisher 用）
     pypi_tag = f"pypi/{typ}/{name}/{version}"
-    subprocess.run(["git","tag",pypi_tag],cwd=str(WORK_REPO),capture_output=True)
+    subprocess.run(["git","tag",pypi_tag],cwd=str(_rel_repo),capture_output=True)
     for rm in ["gitee","origin"]:
-        subprocess.run(["git","push",rm,tag],cwd=str(WORK_REPO),capture_output=True,timeout=30)
-        subprocess.run(["git","push",rm,pypi_tag],cwd=str(WORK_REPO),capture_output=True,timeout=30)
-    rmt = subprocess.run(["git","remote","get-url","origin"],cwd=str(WORK_REPO),
+        subprocess.run(["git","push",rm,tag],cwd=str(_rel_repo),capture_output=True,timeout=30)
+        subprocess.run(["git","push",rm,pypi_tag],cwd=str(_rel_repo),capture_output=True,timeout=30)
+    rmt = subprocess.run(["git","remote","get-url","origin"],cwd=str(_rel_repo),
                          capture_output=True,text=True).stdout.strip()
     token = ""
     if ":" in rmt and "@" in rmt:
@@ -1377,6 +1394,8 @@ def step_release_create(name: str, typ: str, version: str):
 
 # ── 主流程 ────────────────────────────────────────────────────────────────────
 def main():
+    # v2.37.0 多仓库：按类型动态切换仓库路径（须在函数内首次使用前声明）
+    global WORK_REPO, README_FILE
     global QUIET_MODE
     # ── 0. 彻底阻止 CredentialHelperSelector 弹窗 ──────────────────────
     # 方案：在最早时机固化 credential.helper 配置，所有后续 git 命令直接继承
@@ -1425,8 +1444,8 @@ def main():
             if sd.is_dir() and (sd / "_meta.json").exists():
                 subprocess.run([sys.executable, __file__, sd.name] + sys.argv[2:],
                               capture_output=not QUIET_MODE)
-        for ad in sorted((SKILLS_DIR.parent / "agent").iterdir()):
-            if ad.is_dir() and (ad / "rag_assistant" / "__init__.py").exists():
+        for ad in sorted((get_work_repo("agent")).iterdir()):
+            if ad.is_dir() and any(f.name == "__init__.py" and "__version__" in f.read_text(encoding="utf-8", errors="ignore") for f in ad.rglob("__init__.py")):
                 subprocess.run([sys.executable, __file__, ad.name] + sys.argv[2:],
                               capture_output=not QUIET_MODE)
         return
@@ -1451,7 +1470,8 @@ def main():
                 mf_repo = item.get("repo_path", "")
                 if mf_src and Path(mf_src).is_dir():
                     src_dir = Path(mf_src)
-                    work_repo_subdir = mf_repo or f"skills/{name}"
+                    # v2.37.0 多仓库：repo_path 为仓库根下相对路径（无 skills//agent/ 前缀）
+                    work_repo_subdir = mf_repo or name
                     is_skill = (src_dir / "_meta.json").exists()
                     # agent 检测：找任意 __init__.py 中含 __version__ 的
                     is_agent = any(
@@ -1473,9 +1493,9 @@ def main():
                 override_dir = Path(overrides[name])
                 if override_dir.is_dir():
                     if (override_dir / "_meta.json").exists():
-                        is_skill, typ, src_dir, work_repo_subdir = True, "skill", override_dir, f"skills/{name}"
+                        is_skill, typ, src_dir, work_repo_subdir = True, "skill", override_dir, name
                     elif (override_dir / "rag_assistant" / "__init__.py").exists():
-                        is_agent, typ, src_dir, work_repo_subdir = True, "agent", override_dir, f"agent/{name}"
+                        is_agent, typ, src_dir, work_repo_subdir = True, "agent", override_dir, name
                     else:
                         print(f"❌ source_overrides 路径存在但无法识别类型: {override_dir}")
                         sys.exit(1)
@@ -1484,21 +1504,28 @@ def main():
 
     if not manifest_found and not override_dir:
         skill_dir = SKILLS_DIR / name
-        agent_dir = SKILLS_DIR.parent / "agent" / name
+        agent_dir = get_work_repo("agent") / name
         is_skill = (skill_dir / "_meta.json").exists()
-        is_agent = (agent_dir / "rag_assistant" / "__init__.py").exists()
+        is_agent = any(
+            f.name == "__init__.py" and "__version__" in f.read_text(encoding="utf-8", errors="ignore")
+            for f in agent_dir.rglob("__init__.py")
+        ) if agent_dir.is_dir() else False
         if is_skill:
             typ = "skill"
             src_dir = skill_dir
-            work_repo_subdir = f"skills/{name}"
+            work_repo_subdir = name
         elif is_agent:
             typ = "agent"
             src_dir = agent_dir
-            work_repo_subdir = f"agent/{name}"
+            work_repo_subdir = name
         else:
-            print(f"❌ 未找到项目: {name}（不在 skills/、agent/、manifest 也不在 source_overrides）")
+            print(f"❌ 未找到项目: {name}（不在 skills/、maby_agent/、manifest 也不在 source_overrides）")
             sys.exit(1)
     print(f"  类型: {typ}")
+
+    # v2.37.0 多仓库：按类型切换全局 WORK_REPO / README_FILE
+    WORK_REPO = get_work_repo(typ)
+    README_FILE = WORK_REPO / "README.md"
 
     # ── 读取版本号 ────────────────────────────────────────────
     version = ""
@@ -1550,7 +1577,7 @@ def main():
     import contextlib
     with open(os.devnull, 'w', encoding='utf-8') as _null:
         with contextlib.redirect_stdout(_null), contextlib.redirect_stderr(_null):
-            step_manifest(name, version)
+            step_manifest(name, version, repo_name=get_repo_name(typ))
             compare_result = step_version_compare(name, version, work_repo_subdir)
 
             if is_skill:
@@ -1599,11 +1626,12 @@ def main():
                 desensitized_files = step_sensitive_scan(name, repo_skill_dir)
             finally:
                 sys.stdout = _saved_out
-            # README 更新：同时覆盖 skills 和 agents（update_readme.py 自身已支持）
-            step_update_readme()
+            # README 更新：按当前类型对应的仓库生成
+            step_update_readme(repo_name=get_repo_name(typ), work_repo=WORK_REPO)
 
             gitee_ok, github_ok = step_commit_and_push(name, version, work_repo_subdir)
-            step_update_manifest_uploaded(name, version, gitee_ok, github_ok)
+            step_update_manifest_uploaded(name, version, gitee_ok, github_ok,
+                                          repo_name=get_repo_name(typ))
 
             # 审计（仅 skill）
             audit_result = {}

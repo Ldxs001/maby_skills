@@ -1,3 +1,15 @@
+## [2.37.0] - 2026-08-02
+
+### 新特性（多仓库模型）
+- **按项目类型动态解析目标仓库** — skill → `maby_skills`（`~/WorkBuddy/maby_skills`），agent → `maby_agent`（`~/WorkBuddy/maby_agent`）。`_paths.py` 新增 `get_work_repo()/get_repo_config()/get_repo_name()`，从 `config.json` 的 `repos` 注册表读取
+- **manifest 多仓库化** — manifest.json 重构为 `maby_skills`（22 项技能）+ `maby_agent`（3 项智能体）+ `workbuddy-skills`（冻结存档）三个仓库，`repo_path` 去掉 `skills/`、`agent/` 前缀（新仓库根下直接是项目目录）
+- **README 生成器多仓库化** — `update_readme.py` 按仓库类型（skills/agents）分别生成 README，支持 `readme.banner` 配置注入历史声明（手写说明改为配置驱动，不再被覆盖）
+- **ClawHub/SkillHub/Release/PyPI 目标仓库动态化** — 发布路径与 Release tag 推送目标随项目类型切换
+
+### 变更
+- **老仓库 workbuddy-skills 永久冻结**（2026-08-02 起）——git-sync 不再触碰，仅作历史存档
+- `git-sync.sh` / `git-sync.py` 的 `REPO_NAME`、`WORK_REPO`、`WORK_REPO_DIR` 全部动态化，移除对 `workbuddy-skills` 的硬编码引用
+
 ## [2.36.0] - 2026-07-31
 
 ### 修复（PyPI 发布链路 6 连 bug，structured-writer 1.1.0 发布时暴露）
