@@ -1,3 +1,19 @@
+## [2.41.0] - 2026-08-03
+
+### 文档全面修正（对齐 v2.40.0 实际行为 + 泛化）
+
+- **多仓库模型文档对齐** — SKILL.md/guide.md/reference.md/faq.md 全部从 workbuddy-skills 时代描述更新为 v2.37.0 多仓库模型（config.json `repos` 注册表、按类型解析仓库路径）；manifest 命令示例仓库名参数改 `<repo>` 占位
+- **彻底去特化（通用性）** — 文档移除平台名（WorkBuddy）、本机路径（`~/.workbuddy/skills`、`~/WorkBuddy`）、真实用户名，统一改用 `$SKILLS_DIR`、`<repo>`、`调用方（AI 助手）` 等通用占位；LLM 交互步骤描述由"WorkBuddy 输出决策"改为"调用方（AI 助手）在回复中输出决策 JSON"
+- **路径统一管理机制写入文档** — 明确 `scripts/_paths.py` 为唯一路径定义源，14 个脚本一律 `from _paths import ...` 引用，仓库路径由 config.json 注册表 + `get_work_repo(type)` 动态解析
+- **删除虚构步骤** — guide.md 移除代码中不存在的"步骤 0.5 文件路径校准"（v2.3 残留，实际无此逻辑）
+- **ClawHub 绝对路径** — SKILL.md 平台差异表标注 ClawHub 必须传绝对路径（相对路径在 npx 下 resolve 失败报 "Path must be a folder"）
+- **skillhub_publish.py 排除 .gitignore** — 发布前临时移走 `.gitignore`（SkillHub 400 拒绝 git 元文件），`finally` 恢复，随下次 bump 一起发布
+- **clawhub_publish.py 路径探测** — 兼容 skills/ 子目录与顶层两种仓库结构
+
+### 修复
+
+- **PyPI long_description 粘合 CHANGELOG** — setup.py 模板 README 后追加当前版本 `## [x.y.z]` 区块（v2.40.0 已实现，本版本随文档同步发布市场）
+
 ## [2.40.0] - 2026-08-03
 
 ### 新增
