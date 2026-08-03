@@ -1,3 +1,9 @@
+## [2.39.0] - 2026-08-03
+
+### 修复
+
+- **PyPI prerelease 判别 bug** — `step_pypi_publish` 的 `is_prerelease` 正则 `\.(a|b|rc|dev)\d+` 要求 prerelease 标识前必须有 `.`，但 PEP 440 的 `1.4.0b1`/`1.1.0b16`/`1.4.0rc2` 中 b/rc 前是数字（`0b1`）而非点号 → 全部误判为正式版，classifier 错误标成 Production/Stable。修复为 `(?:^|[._\d-])(?:a|alpha|b|beta|rc|dev)\d+`，9 场景测试全 PASS（b1/b16/rc2/a1/dev1 正确判 prerelease，纯数字版本判正式版）
+
 ## [2.38.0] - 2026-08-02
 
 ### 新特性（智能体 README 描述升级）

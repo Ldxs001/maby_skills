@@ -1207,8 +1207,9 @@ def step_pypi_publish(name: str, version: str, src_dir: Path):
     pypi_name = f"{name}-ldxs"
     # 标准化版本号为 PEP 440
     pypi_ver = _normalize_version(version)
-    # 自动判别开发状态
-    is_prerelease = bool(re.search(r'\.(a|alpha|b|beta|rc|dev)\d+', pypi_ver, re.I))
+    # 自动判别开发状态（PEP 440：1.4.0b1/1.4.0rc2/1.0.0.dev1 均为预发布；
+    #   b/rc 前是数字如 0b1，dev 前是 .，无分隔符时也可行）
+    is_prerelease = bool(re.search(r'(?:^|[._\d-])(?:a|alpha|b|beta|rc|dev)\d+', pypi_ver, re.I))
     dev_status = "4 - Beta" if is_prerelease else "5 - Production/Stable"
     build_dir = Path(tempfile.gettempdir()) / f"pypi_build_{name}_{version}"
     if build_dir.exists(): shutil.rmtree(build_dir)
@@ -1255,7 +1256,7 @@ if os.path.exists(readme_p):
     with open(readme_p,encoding="utf-8") as f: LD=f.read()
 setup(name="{pypi_name}",version=V,description="{name} — AI Agent",
       long_description=LD,long_description_content_type="text/markdown",
-      author="Ldxs (wUwproject)",author_email="wuwofc@yeah.net",
+      author="Ldxs (wUwproject)",author_email="contact@example.com",
       url="https://github.com/Ldxs001/maby_agent",
       packages=["{pkg_dir}"],include_package_data=True,
       python_requires=">=3.10",install_requires=REQ,
