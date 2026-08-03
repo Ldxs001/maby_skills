@@ -1,3 +1,9 @@
+## [2.40.0] - 2026-08-03
+
+### 新增
+
+- **PyPI long_description 粘合更新日志** — `step_pypi_publish` 的 setup.py 模板新增 CHANGELOG 粘合：README.md 后追加当前版本对应的 `## [x.y.z]` 区块（`## 更新说明`），用户发布 PyPI 后包描述页直接展示最近更新内容。MANIFEST.in 同步 include CHANGELOG.md。附：修复 f-string 模板转义（`\n` 在 f-string 中为换行符，需 `\\n` 保留字面），并修 `python -m build` 下 pyproject `[project].readme` 覆盖 setup.py long_description 的问题（构建时用最小 pyproject 仅含 build-system）
+
 ## [2.39.0] - 2026-08-03
 
 ### 修复

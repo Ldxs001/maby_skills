@@ -1235,10 +1235,11 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 """), encoding="utf-8")
 
-    # setup.py（动态读取版本号 + long_description）
+    # setup.py（动态读取版本号 + long_description：README 粘合当前版本 CHANGELOG）
     _P(str(build_dir / "setup.py")).write_text(textwrap.dedent(f'''\
-import os
+import os, re
 from setuptools import setup
+BS=chr(92)
 init_p=os.path.join(os.path.dirname(__file__),"{pkg_dir}","__init__.py")
 V="{pypi_ver}"
 if os.path.exists(init_p):
@@ -1254,9 +1255,18 @@ readme_p=os.path.join(os.path.dirname(__file__),"README.md")
 LD="{name}"
 if os.path.exists(readme_p):
     with open(readme_p,encoding="utf-8") as f: LD=f.read()
+# 粘合当前版本的 CHANGELOG 区块到 long_description（更新说明）
+changelog_p=os.path.join(os.path.dirname(__file__),"CHANGELOG.md")
+if os.path.exists(changelog_p):
+    with open(changelog_p,encoding="utf-8") as f: _cl=f.read()
+    _esc=re.escape(V)
+    _m=re.search(r"##{BS}s*{BS}["+_esc+r"{BS}].*?(?={BS}n##{BS}s*{BS}[|{BS}Z)",_cl,re.DOTALL)
+    if _m:
+        _vc=_m.group(0).strip()
+        LD += "{BS}n{BS}n---{BS}n{BS}n## 更新说明{BS}n{BS}n" + _vc
 setup(name="{pypi_name}",version=V,description="{name} — AI Agent",
       long_description=LD,long_description_content_type="text/markdown",
-      author="Ldxs (wUwproject)",author_email="contact@example.com",
+      author="Ldxs (wUwproject)",author_email="wuwofc@yeah.net",
       url="https://github.com/Ldxs001/maby_agent",
       packages=["{pkg_dir}"],include_package_data=True,
       python_requires=">=3.10",install_requires=REQ,
@@ -1266,8 +1276,9 @@ setup(name="{pypi_name}",version=V,description="{name} — AI Agent",
                    "Programming Language :: Python :: 3",
                    "Topic :: Scientific/Engineering :: Artificial Intelligence"])
 '''), encoding="utf-8")
+    # MANIFEST.in 补充 CHANGELOG.md（粘合内容需要它在源码包/构建环境中存在）
     _P(str(build_dir / "MANIFEST.in")).write_text(
-        f"include requirements.txt\ninclude README.md\ninclude LICENSE\ninclude setup.py\ninclude main.py\n"
+        f"include requirements.txt\ninclude README.md\ninclude CHANGELOG.md\ninclude LICENSE\ninclude setup.py\ninclude main.py\n"
         f"graft {pkg_dir}/\nprune __pycache__\nprune *.pyc\n", encoding="utf-8")
     r = subprocess.run([sys.executable, "-m", "build", "--wheel", "--no-isolation"],
                        cwd=str(build_dir), capture_output=True, text=True)
