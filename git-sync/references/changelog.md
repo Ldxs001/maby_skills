@@ -1,3 +1,9 @@
+## [2.38.0] - 2026-08-02
+
+### 新特性（智能体 README 描述升级）
+- **智能体描述提取升级** — `update_readme.py` agents 分支：描述来源从 `__init__.py` docstring 首行升级为「README.md 引言 → PROTOCOL.md 概述段 → docstring」三级回退，README 表格描述与各智能体自带文档一致（rag-assistant/structured-writer 取引言 blockquote，Orchestrator 取 PROTOCOL 概述段）
+- **扫描排除 `.github`** — 智能体目录扫描排除 `.github` 等隐藏目录，避免误入列表
+
 ## [2.37.0] - 2026-08-02
 
 ### 新特性（多仓库模型）

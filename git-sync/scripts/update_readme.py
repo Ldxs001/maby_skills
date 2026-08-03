@@ -81,6 +81,97 @@ def extract_desc(skill_dir):
 
     return "技能描述"
 
+
+def _extract_agent_desc(agent_dir):
+    """提取智能体描述：README.md 引言 → __init__.py docstring（v2.38.0）"""
+    # 优先级 1：README.md 标题下第一段（引言 blockquote 或正文首段）
+    readme = os.path.join(agent_dir, "README.md")
+    is_protocol = False
+    if not os.path.exists(readme):
+        # 回退：PROTOCOL.md（Orchestrator 等无 README 的智能体）
+        readme = os.path.join(agent_dir, "PROTOCOL.md")
+        is_protocol = True
+    if os.path.exists(readme):
+        try:
+            content = open(readme, "r", encoding="utf-8").read()
+            lines = content.split("\n")
+            # 跳过标题（# 开头）和 frontmatter
+            start = 0
+            for i, ln in enumerate(lines):
+                if ln.startswith("#"):
+                    start = i + 1
+                elif ln.strip() and not ln.startswith("<!--"):
+                    start = i
+                    break
+            # 收集标题后的首个非空 blockquote（> 开头）或首段正文
+            quote_parts = []
+            para_parts = []
+            # PROTOCOL.md：直接定位"概述"章节下的正文
+            overview_mode = False
+            for ln in lines[start:]:
+                s = ln.strip()
+                if is_protocol:
+                    if s.startswith("##") and ("概述" in s or "Overview" in s.lower()):
+                        overview_mode = True
+                        continue
+                    if overview_mode and s.startswith("##"):
+                        break  # 概述章节结束
+                    if not overview_mode:
+                        continue
+                    if not s:
+                        continue
+                    if s.startswith("-") or s.startswith(">"):
+                        continue
+                    para_parts.append(s)
+                    if len(para_parts) >= 2:
+                        break
+                else:
+                    if not s:
+                        if quote_parts or para_parts:
+                            break
+                        continue
+                    # PROTOCOL.md：跳过版本/更新等元信息 blockquote
+                    if is_protocol and s.startswith(">") and (
+                        s.lstrip("> ").startswith("版本") or s.lstrip("> ").startswith("更新")):
+                        continue
+                    if s.startswith(">"):
+                        quote_parts.append(s.lstrip("> ").strip())
+                    elif not s.startswith("---") and not s.startswith("[") and not s.startswith("#"):
+                        para_parts.append(s)
+                    if len(quote_parts) >= 2 or len(para_parts) >= 2:
+                        break
+            # PROTOCOL.md 优先取正文段（跳过目录行），README.md 优先取引言
+            if is_protocol:
+                desc = " ".join(para_parts).strip() if para_parts else " ".join(quote_parts).strip()
+            else:
+                desc = " ".join(quote_parts).strip() if quote_parts else (para_parts[0].strip() if para_parts else "")
+            if len(desc) > 150:
+                desc = desc[:147].rstrip() + "..."
+            if desc:
+                return desc
+        except Exception:
+            pass
+
+    # 优先级 2：__init__.py docstring 首行
+    init_py = None
+    for root, dirs, files in os.walk(agent_dir):
+        dirs[:] = [d for d in dirs if d not in ("__pycache__", ".git", "vendor", "tools", "static", "data")]
+        if "__init__.py" in files:
+            init_py = os.path.join(root, "__init__.py")
+            break
+    if init_py and os.path.exists(init_py):
+        try:
+            content = open(init_py, "r", encoding="utf-8").read()
+            m = re.search(r'"""(.*?)"""', content, re.DOTALL)
+            if m:
+                desc = m.group(1).strip().split("\n")[0][:150]
+                if desc:
+                    return desc
+        except Exception:
+            pass
+
+    return "智能体"
+
 def generate_readme(repo_path, readme_path, repo_name="maby_skills"):
     """全量生成 README.md（v2.37.0 多仓库：按仓库类型扫描）"""
     # 从 config.json 读取仓库配置（banner / title / desc / repo_name）
@@ -103,24 +194,9 @@ def generate_readme(repo_path, readme_path, repo_name="maby_skills"):
         actual_agents = []
         for entry in sorted(os.listdir(repo_dir)):
             full = os.path.join(repo_dir, entry)
-            if os.path.isdir(full) and entry not in (".git", ".dist", ".standardization"):
-                # 自动检测包目录
-                init_py = None
-                for root, dirs, files in os.walk(full):
-                    dirs[:] = [d for d in dirs if d not in ("__pycache__", ".git")]
-                    if "__init__.py" in files:
-                        init_py = os.path.join(root, "__init__.py")
-                        break
-                desc = "智能体"
-                if init_py and os.path.exists(init_py):
-                    try:
-                        with open(init_py, "r", encoding="utf-8") as f:
-                            content = f.read()
-                        m = re.search(r'"""(.*?)"""', content, re.DOTALL)
-                        if m:
-                            desc = m.group(1).strip().split("\n")[0][:120]
-                    except Exception:
-                        pass
+            if os.path.isdir(full) and entry not in (".git", ".dist", ".standardization", ".github"):
+                # 描述提取优先级：README.md 引言 → __init__.py docstring
+                desc = _extract_agent_desc(full)
                 actual_agents.append((entry, desc))
         _safe_print(f"扫描到 {len(actual_agents)} 个智能体目录:")
 
