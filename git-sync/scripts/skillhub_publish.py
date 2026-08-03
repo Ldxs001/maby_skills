@@ -1,5 +1,5 @@
 """SkillHub 发布器 — git-sync 子模块"""
-import sys, subprocess, json, os
+import sys, subprocess, json, os, shutil, tempfile
 from _paths import WORK_REPO
 
 def main():
@@ -38,17 +38,20 @@ def main():
         "--changelog", changelog_line,
     ]
 
-    # SkillHub 不允许 .gitignore 等 git 元文件：发布前临时移走，发布后恢复
+    # SkillHub 不允许 .gitignore 等 git 元文件：发布前移出技能目录（备份到系统临时目录，避免 .skh_bak 残留目录内），发布后恢复
     gi = os.path.join(skill_dir, ".gitignore")
     gi_bak = ""
     if os.path.isfile(gi):
-        gi_bak = gi + ".skh_bak"
-        os.replace(gi, gi_bak)
+        gi_bak = os.path.join(tempfile.gettempdir(), f".gitignore_skh_{name}_{version}")
+        shutil.copy2(gi, gi_bak)
+        os.remove(gi)
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=work_repo)
     finally:
+        if gi_bak and os.path.isfile(gi_bak) and not os.path.isfile(gi):
+            shutil.copy2(gi_bak, gi)
         if gi_bak and os.path.isfile(gi_bak):
-            os.replace(gi_bak, gi)
+            os.remove(gi_bak)
     if result.returncode == 0:
         print(f"  ✅ SkillHub: {name}")
     else:
