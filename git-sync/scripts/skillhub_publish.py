@@ -38,7 +38,17 @@ def main():
         "--changelog", changelog_line,
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=work_repo)
+    # SkillHub 不允许 .gitignore 等 git 元文件：发布前临时移走，发布后恢复
+    gi = os.path.join(skill_dir, ".gitignore")
+    gi_bak = ""
+    if os.path.isfile(gi):
+        gi_bak = gi + ".skh_bak"
+        os.replace(gi, gi_bak)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=work_repo)
+    finally:
+        if gi_bak and os.path.isfile(gi_bak):
+            os.replace(gi_bak, gi)
     if result.returncode == 0:
         print(f"  ✅ SkillHub: {name}")
     else:
