@@ -1,3 +1,18 @@
+## [2.44.0] - 2026-08-04
+
+### 安全硬约束：脱敏强制（severity 分级禁 keep）
+
+- **critical/high 禁止 keep**：sensitive_scan.py cmd_apply 对 severity=critical
+  （Token/私钥）和 high（邮箱）的发现强制 sanitize，LLM 决策写 keep 也会被
+  代码级拦截并转为脱敏——"脱敏强制"从软约束（靠 LLM 自觉）升级为硬约束
+- **只替换 forbidden 的 match**：强制脱敏仅替换 critical/high 的匹配文本，
+  medium（IP/路径/用户名公开署名）保持原样，保留合法 keep 豁免权
+- **硬约束兜底**：apply 完成后重新检查处理后文件，若仍残留 critical/high
+  原始 match 则 exit 1 阻断（防脱敏未生效静默通过）
+- **统计输出**：apply 输出 强制脱敏/正常脱敏/保留/跳过 四类计数，便于审计
+- 背景：2026-08-04 自推送实战中 LLM 写"全部 keep"导致真实邮箱/token 泄露
+  进仓库（已纠正+重推），此版本根治"脱敏可被绕过"的设计漏洞
+
 ## [2.43.1] - 2026-08-04
 
 ### 修复（v2.43.0 推送实战暴露的 helper 二次 bug）
