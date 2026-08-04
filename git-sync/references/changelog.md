@@ -1,3 +1,44 @@
+## [2.44.0] - 2026-08-04
+
+### 安全硬约束：脱敏强制（severity 分级禁 keep）
+
+- **critical/high 禁止 keep**：sensitive_scan.py cmd_apply 对 severity=critical
+  （Token/私钥）和 high（邮箱）的发现强制 sanitize，LLM 决策写 keep 也会被
+  代码级拦截并转为脱敏——"脱敏强制"从软约束（靠 LLM 自觉）升级为硬约束
+- **只替换 forbidden 的 match**：强制脱敏仅替换 critical/high 的匹配文本，
+  medium（IP/路径/用户名公开署名）保持原样，保留合法 keep 豁免权
+- **硬约束兜底**：apply 完成后重新检查处理后文件，若仍残留 critical/high
+  原始 match 则 exit 1 阻断（防脱敏未生效静默通过）
+- **统计输出**：apply 输出 强制脱敏/正常脱敏/保留/跳过 四类计数，便于审计
+- 背景：2026-08-04 自推送实战中 LLM 写"全部 keep"导致真实邮箱/token 泄露
+  进仓库（已纠正+重推），此版本根治"脱敏可被绕过"的设计漏洞
+
+## [2.43.1] - 2026-08-04
+
+### 修复（v2.43.0 推送实战暴露的 helper 二次 bug）
+
+- **helper docstring 路径转义**：write_filter_decision_{name}.py / write_sensitive_decision_{name}.py
+  的 docstring 中嵌入 Windows 路径（含 \\U 转义）导致生成的 helper 脚本 SyntaxError，
+  改为 json.dumps(str(path)) 转义（与 with open 行一致）
+- **helper 扫描数据嵌入改为读文件**：原实现把扫描 JSON 用 json.loads("""...""") 嵌入源码，
+  Windows 路径 \\U 在源码解析时爆炸；改为 helper 直接 json.load(open(scan_path)) 读取扫描文件
+
+## [2.43.0] - 2026-08-04
+
+### 重大改进：让位式 LLM 握手（根治决策卡死）
+
+- **两处 LLM 决策点改为让位式握手**（文件过滤 step_llm_file_filter + 敏感脱敏 step_sensitive_scan）：
+  遇到决策点时写 resume 状态文件（TEMP_DIR/resume_{name}.json）+ exit 3 退出，把控制权
+  交还调用方（AI 助手），不再进程内 120s 轮询等待（旧版占用控制权导致 AI 无法并行写决策文件导致卡死）
+- **断点续跑**：重跑同一命令时 main() 检测 resume 状态，跳过已完成步骤：
+  file_filter 断点跳过 manifest/version/normalize；sensitive_scan 断点跳过文件过滤与同步，
+  直接用已同步目录从脱敏环节继续。决策消费成功后 resume 自动清除
+- **修复 helper 脚本转义 bug**：write_filter_decision_{name}.py / write_sensitive_decision_{name}.py
+  中 Windows 路径用 json.dumps 转义替代 r"{path}" 拼接（原实现生成脚本 SyntaxError）
+- **文档对齐**：SKILL.md 约束/核心能力/工作流程更新为让位式描述（原"仅前台运行/在回复中输出决策"
+  与实现"写决策文件"不一致，已修正）
+- **resume 状态路径**：_paths.py 新增 resume_state_path(name)（R-12 路径集中管理）
+
 ## [2.42.0] - 2026-08-03
 
 ### 修复

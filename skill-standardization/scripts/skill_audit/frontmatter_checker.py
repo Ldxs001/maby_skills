@@ -321,15 +321,27 @@ def version_matches_manifest(filepath, content, fm, body, manifest_version=None,
                 field_issues.append(f"tags 不一致：frontmatter({fm_tags_set}) != _meta({meta_tags_set})")
 
             # trigger/triggers: frontmatter → _meta（frontmatter 权威，转数组）
+            # ★ v2.103.0 修复: 语义包含比较，避免"文本 vs 关键词数组"必然误报
+            #   frontmatter 是自然语言触发描述（如 "当用户要求清理/归档..."）
+            #   _meta.json 是触发关键词数组（如 ["清理工作区","归档会话"]）
+            #   两者语义等价但表述不同。判定规则：
+            #   - 若任一为空 → 不比较（缺触发场景由 R-07 管）
+            #   - 若 frontmatter 文本含全部 meta 关键词 → 一致
+            #   - 若 frontmatter 文本被 meta 某关键词包含 → 一致
+            #   - 否则才报不一致
             fm_trigger = fm.get('trigger', '')
-            if fm_trigger and isinstance(fm_trigger, str):
-                fm_trigger_set = set(t.strip() for t in fm_trigger.split('|') if t.strip())
-            else:
-                fm_trigger_set = set()
             meta_triggers = meta.get('triggers', [])
-            meta_trigger_set = set(str(t) for t in (meta_triggers or []))
-            if fm_trigger_set and meta_trigger_set and fm_trigger_set != meta_trigger_set:
-                field_issues.append(f"trigger/triggers 不一致：frontmatter({fm_trigger_set}) != _meta({meta_trigger_set})")
+            if not fm_trigger or not meta_triggers:
+                pass  # 缺字段由其他规则处理，R-10 不做空值误报
+            else:
+                fm_text = str(fm_trigger).strip()
+                meta_strs = [str(t).strip() for t in meta_triggers if str(t).strip()]
+                fm_has_all = all(kw in fm_text for kw in meta_strs)
+                meta_has_fm = any(fm_text in ms or ms in fm_text for ms in meta_strs)
+                if not (fm_has_all or meta_has_fm):
+                    field_issues.append(
+                        f"trigger/triggers 不一致：frontmatter({fm_text[:50]}...) 与 "
+                        f"_meta({meta_strs[:3]}) 无语义交集")
 
             # data_dir: 路径归一化后比较（../.standardization/ ≈ skills/.standardization/）
             fm_data_dir = str(fm.get('data_dir', '')).strip()

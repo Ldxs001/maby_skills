@@ -111,3 +111,11 @@ def temp_filter_scan_path(name: str) -> Path:
 def temp_filter_decisions_path(name: str) -> Path:
     """文件过滤器 LLM 判定：TEMP_DIR / file_filter_{name}.decisions.json"""
     return TEMP_DIR / f"file_filter_{name}.decisions.json"
+
+def resume_state_path(name: str) -> Path:
+    """断点续跑状态：TEMP_DIR / resume_{name}.json
+
+    记录 LLM 决策让位后卡在哪个环节（file_filter / sensitive_scan），
+    重跑时据此跳过已完成的步骤，从当前环节继续。
+    """
+    return TEMP_DIR / f"resume_{name}.json"

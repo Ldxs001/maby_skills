@@ -1,3 +1,24 @@
+## [2.103.0] - 2026-08-04
+
+### 修复（引擎自身严重缺陷，refactor 实战暴露）
+
+1. **YAML 折叠块解析丢失（P0）**：`parse_simple_yaml_frontmatter` 忽略 `>`/`|` 折叠块
+   及续行，auto-fix 重写 frontmatter 时把 description/trigger 清空。新增折叠块/字面块
+   收集与合并逻辑，`_fmt_frontmatter_value` 支持多行还原。修复后 auto-fix 不再抹空内容。
+2. **R-10 trigger 字面比较必误报（P0）**：frontmatter 自然语言文本 vs _meta.json 关键词
+   数组做 `!=` 比较，语义等价必然报 ERROR。改为语义包含比较（任一方向包含即一致，
+   真不一致仍报错）。
+3. **C-14 工作流 JSON 路径拼错（P0）**：`basename(dirname(dirname(_skill_dir)))` 多套
+   一层 dirname 取到 `.workbuddy` 而非 `skills`，引擎永远找不到 `.structure_workflow.json`
+   导致 LLM 确认无效。改为与 `_manual_dir_path` 同源算法。
+4. **快照路径分裂 HARD-BLOCK（P1）**：`_clean_stale_state` 删除状态文件但不同步删
+   `.fp_snapshot.json` 指纹 → 永久状态不一致。cleanup 现同步删快照条目；`_update_snapshot`
+   文件不存在时删条目而非存 null。
+5. **C-11 synonyms 歧义覆盖（P1）**：「限制」等章节名被「约束」synonyms 抢匹配导致
+   伪逆序。新逻辑：synonyms 值与 section_order 独立项相关时优先用 order 位置。
+6. **R-25 fix key 映射错位（P2）**：C-07 误映射 trigger_format（应为 code_block_lang）、
+   C-12 细分约束/表格/工作流。
+
 ## [2.102.9] - 2026-07-09
 
 ### 修复

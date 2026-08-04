@@ -424,6 +424,44 @@ def _is_hardcoded_path(s):
     return False
 
 
+def _flush_folded(result, folded, fold_key, fold_mode):
+    """合并解析过程中累积的折叠块/字面块内容到 result。
+
+    Args:
+        result: 正在构建的 frontmatter dict
+        folded: {key: {mode: [原始行,...]}} 累积的块数据
+        fold_key: 当前块所属 key
+        fold_mode: '>' 折叠 | '|' 字面
+    返回:
+        (result, 新的 folded 状态(空 dict), None, None)
+    """
+    if not folded:
+        return result, folded, fold_key, fold_mode
+    key = next(iter(folded))
+    mode = folded[key]
+    mode_name = next(iter(mode))
+    raw_lines = mode[mode_name]
+    if mode_name == '>':
+        # 折叠块：行合并为单行（空格分隔），空行保留为换行
+        parts = []
+        for ln in raw_lines:
+            s = ln.strip()
+            parts.append('\n' if s == '' else s)
+        joined = ''
+        for p in parts:
+            if p == '\n':
+                joined = joined.rstrip(' ') + '\n'
+            else:
+                if joined and not joined.endswith('\n'):
+                    joined += ' '
+                joined += p
+        result[key] = joined.strip()
+    else:
+        # 字面块：保留原始行
+        result[key] = '\n'.join(ln.rstrip('\n') for ln in raw_lines)
+    return result, {}, None, None
+
+
 def parse_simple_yaml_frontmatter(text):
     """从 Markdown 文本中提取并解析 YAML frontmatter。
     返回 (dict, body_text) 或 (None, text) 如果没有 frontmatter。"""
@@ -445,10 +483,26 @@ def parse_simple_yaml_frontmatter(text):
 
     result = {}
     current_key = None
+    # 折叠块/字面块累积状态：{key: [行,...]}，遇到下一个 key 或 --- 时合并
+    _folded = {}          # key -> list[str] 原始行（含缩进，去掉行尾换行）
+    _fold_mode = None     # '>' 或 '|'
 
-    for line_no, line in enumerate(fm_text.split("\n")):
+    fm_lines = fm_text.split("\n")
+    for line_no, line in enumerate(fm_lines):
         stripped = line.strip()
-        if not stripped or stripped.startswith(">"):
+        # 折叠块/字面块的续行：属于当前 key 的块内容，跳过常规解析
+        if _folded:
+            # 判断是否仍是块内容：缩进行（以空格/tab开头）或空行（块内）
+            if line[:1] in (' ', '\t') or stripped == '':
+                # 收集块内原始行（保持相对缩进，用于后续合并）
+                _folded[_fold_key][_fold_mode].append(line)
+                continue
+            # 块结束（遇到新的顶层 key 或列表项）→ 先合并已收集的块
+            result, _folded, _fold_key, _fold_mode = _flush_folded(
+                result, _folded, _fold_key, _fold_mode)
+        if not stripped:
+            continue
+        if stripped.startswith(">"):
             continue
         if stripped.startswith("- ") and current_key:
             arr_key = current_key
@@ -468,6 +522,15 @@ def parse_simple_yaml_frontmatter(text):
             if (val.startswith('"') and val.endswith('"')) or \
                (val.startswith("'") and val.endswith("'")):
                 val = val[1:-1]
+            # ★ 折叠块 `>` / 字面块 `|`：进入块模式，收集后续缩进行
+            if val in ('>', '|'):
+                _folded = {key: {val: []}}
+                _fold_key = key
+                _fold_mode = val
+                # 该 key 暂存空值占位，合并时填充
+                result[key] = None if val == '>' else '\n'
+                current_key = key
+                continue
             if val.startswith("[") and val.endswith("]"):
                 inner = val[1:-1].strip()
                 if inner:
@@ -484,10 +547,12 @@ def parse_simple_yaml_frontmatter(text):
                     result[key] = val
             # 无论 val 是否为空，都更新 current_key（修复 bug：移到 if/elif 外面）
             current_key = key
-        # 调试输出（正式版关闭）
-        # print(f"DEBUG L{line_no+1}: key={key!r} val={val!r} → result has {len(result)} keys")
-
+    # 文件尾：flush 残留的折叠块
+    if _folded:
+        result, _folded, _fold_key, _fold_mode = _flush_folded(
+            result, _folded, _fold_key, _fold_mode)
     return result, body
+
 
 
 def _find_skills_dir(skill_dir):
@@ -600,5 +665,10 @@ def _fmt_frontmatter_value(v):
             else:
                 items.append(str(item))
         return f"[{', '.join(items)}]"
+    if isinstance(v, str) and '\n' in v:
+        # 多行字符串 → 折叠块 `>`（保留语义，避免 auto-fix 清空）
+        lines = [ln.strip() for ln in v.split('\n')]
+        folded = ' '.join(ln for ln in lines if ln)
+        return '> ' + folded
     return str(v)
     

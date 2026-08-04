@@ -520,7 +520,13 @@ def _update_snapshot(skill_dir, basename):
         os.path.dirname(os.path.abspath(skill_dir)), '.standardization',
         os.path.basename(os.path.abspath(skill_dir)), 'data', basename
     )
-    snap[basename] = _hash_file(target)
+    # ★ v2.103.0: 文件不存在时删除快照条目（而非存 null），
+    #   避免 _verify_snapshot 因 expected 非空但 target 缺失而 HARD-BLOCK
+    _h = _hash_file(target)
+    if _h is None:
+        snap.pop(basename, None)
+    else:
+        snap[basename] = _h
     with open(snap_path, 'w', encoding='utf-8') as f:
         json.dump(snap, f, ensure_ascii=False, indent=2, sort_keys=True)
 
@@ -2517,6 +2523,10 @@ def _clean_stale_state(skill_dir, verbose=True):
     - 开始前（蓝皮书前，Step 0）→ 清旧状态
     - 完成后（一致性审查修复后，Step 9）→ 清临时文件
     - 禁止在 LLM 二次筛除或细碎修复循环内调用
+
+    ★ v2.103.0 修复: 同步删除 .fp_snapshot.json 中的对应指纹条目。
+      旧实现只删状态文件不删快照，导致 _verify_snapshot 发现
+      "信号文件被删除" HARD-BLOCK（快照残留 → 永久状态不一致）。
     """
     import glob as _glob
 
@@ -2534,6 +2544,8 @@ def _clean_stale_state(skill_dir, verbose=True):
             removed += 1
             if verbose:
                 print(f"  🧹 清理: {fname}")
+            # ★ v2.103.0: 同步从快照中移除该文件指纹，避免 HARD-BLOCK
+            _update_snapshot(skill_dir, fname)
 
     # 目录2：skill-standardization 的跟踪目录（skill-standardization/data/{skill_name}/）
     self_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -2956,18 +2968,27 @@ def _run_audit_loop(skill_dir, max_loops, label_prefix, manifest_version=None, f
             print(f"    {rid_inner} {sev} {r_inner.get('detail', '')[:120]}")
             # 为 R-25 注入 fix key（仅首次进入循环时注入，避免反复注入导致无限循环）
             # 首次循环 (loop_count == 1) 时注入 fix key；后续循环中不再重新注入已被清除的 key
+            # ★ v2.103.0 修复 fix key 映射错位：C-07 是代码块语言标识（code_block_lang），
+            #   旧代码误映射为 trigger_format（trigger 格式），风马牛不相及。
             if rid_inner == "R-25" and loop_count == 1:
                 detail_inner = r_inner.get("detail", "")
                 if "C-05" in detail_inner:
                     r_inner["fix"] = {"key": "writing_standards"}
                 if "C-07" in detail_inner:
-                    r_inner["fix"] = {"key": "trigger_format"}
+                    r_inner["fix"] = {"key": "code_block_lang"}
                 if "C-10" in detail_inner and not r_inner.get("fix"):
                     r_inner["fix"] = {"key": "excessive_blank_lines"}
                 if "C-11" in detail_inner:
                     r_inner["fix"] = {"key": "section_names"}
                 if "C-12" in detail_inner:
-                    r_inner["fix"] = {"key": "table_format"}
+                    # C-12 是章节格式合规，细分为约束/表格/trigger 三种格式修复
+                    d = detail_inner
+                    if "约束" in d:
+                        r_inner["fix"] = {"key": "constraint_format"}
+                    elif "工作流程" in d or "流程" in d:
+                        r_inner["fix"] = {"key": "workflow_completeness"}
+                    else:
+                        r_inner["fix"] = {"key": "table_format"}
                 if "C-14" in detail_inner:
                     r_inner["fix"] = {"key": "workflow_completeness"}
                 if "C-15" in detail_inner and not r_inner.get("fix"):
@@ -3079,12 +3100,13 @@ def _run_audit_loop(skill_dir, max_loops, label_prefix, manifest_version=None, f
                 # R-25 可能有多个子项 -> 调所有匹配的 fix 函数
                 if res.get("rule_id", "") == "R-25":
                     detail = res.get("detail", "")
+                    # ★ v2.103.0 修复 fix key 映射错位：C-07→code_block_lang
                     _fix_key_map = {
                         "C-05": "writing_standards",
-                        "C-07": "trigger_format",
+                        "C-07": "code_block_lang",
                         "C-10": "excessive_blank_lines",
                         "C-11": "section_reorder",
-                        "C-12": "trigger_format",
+                        "C-12": "constraint_format",
                         "C-13": "section_reorder",
                         "C-14": "workflow_completeness",
                         "C-15": "inline_refs",

@@ -1613,12 +1613,44 @@ def body_check_document_format(filepath, content, fm, body, **kw):
                     actual_positions.append(order_position[tl])
                 else:
                     # 尝试匹配 synonyms
+                    # ★ v2.103.0 修复: 同义词歧义覆盖。
+                    #   旧逻辑按 dict 顺序遍历 synonyms，导致「限制」先命中
+                    #   「约束」的 synonyms（position 1）而非 section_order
+                    #   独立项「限制/已知问题」（position 13）→ 伪逆序误报。
+                    #   修复：若某 synonyms 值本身是 section_order 独立项名
+                    #   或其精确前缀，优先用 section_order 位置。
                     found = False
-                    for canon, syns in _section_order_synonyms().items():
-                        if tl in [s.lower() for s in syns]:
-                            actual_positions.append(order_position[canon.lower()])
-                            found = True
+                    syn_map = _section_order_synonyms()
+                    for canon, syns in syn_map.items():
+                        for syn in syns:
+                            synl = syn.lower()
+                            # 精确匹配 synonyms
+                            if tl == synl:
+                                # 若该 syn 与 section_order 独立项相关（前缀匹配），
+                                # 优先用更具体的 section_order 项位置
+                                best_pos = None
+                                best_name = None
+                                for oname, opos in order_position.items():
+                                    if tl == oname or oname.startswith(tl + '/'):
+                                        # 选择位置最接近的标准项
+                                        if best_pos is None or abs(opos - len(order_position) // 2) < abs(best_pos - len(order_position) // 2):
+                                            best_pos = opos
+                                            best_name = oname
+                                if best_pos is not None:
+                                    actual_positions.append(best_pos)
+                                    found = True
+                                    break
+                            if found:
+                                break
+                        if found:
                             break
+                    if not found:
+                        # 常规 synonyms 匹配（无 section_order 冲突）
+                        for canon, syns in syn_map.items():
+                            if tl in [s.lower() for s in syns]:
+                                actual_positions.append(order_position[canon.lower()])
+                                found = True
+                                break
                     if not found:
                         # 最后尝试 allowed_sections（非标准但允许的章节名）
                         if tl in [s.lower() for s in _allowed_sections]:
@@ -1904,11 +1936,16 @@ def body_check_document_format(filepath, content, fm, body, **kw):
     _skill_dir = kw.get('skill_dir', '')
     _c14_verified = False
     if _skill_dir:
-        _c14_json = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(filepath)))),
-            '.standardization', os.path.basename(os.path.dirname(os.path.dirname(_skill_dir))),
-            'data', os.path.basename(_skill_dir), 'outputs', '.structure_workflow.json'
-        )
+        # ★ v2.103.0 修复: 与 _manual_dir_path / fix.py _struct_dir 路径算法统一
+        #   旧实现用 basename(dirname(dirname(_skill_dir))) 取目录名，多套一层
+        #   dirname 导致取到 .workbuddy 而非 skills，路径拼错、永远找不到 JSON。
+        #   正确路径: <skills>/.standardization/skill-standardization/data/<skill>/outputs/
+        _self_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        _c14_json = os.path.normpath(os.path.join(
+            _self_root, os.pardir, '.standardization', 'skill-standardization',
+            'data', os.path.basename(os.path.abspath(_skill_dir)),
+            'outputs', '.structure_workflow.json'
+        ))
         if os.path.isfile(_c14_json):
             _c14_verified = True
     # 提取 ## 工作流程 章节中的编号步骤

@@ -2,7 +2,7 @@
 name: git-sync
 slug: git-sync
 displayName: git-sync
-version: 2.42.0
+version: 2.44.0
 author: wUwproject
 license: MIT
 description: 全平台统一发布工具。支持 skills 和 agents 的 Gitee/GitHub/ClawHub/SkillHub/PyPI 同步与 Release 创建，LLM 驱动的文件过滤与脱敏。
@@ -26,7 +26,8 @@ data_dir_compliance: true
 
 ## 约束
 
-- **仅前台运行** — git-sync 包含 LLM 交互步骤（文件筛除、敏感脱敏），调用方（AI 助手）必须在前台会话中读取输出并写入决策文件。**禁止在后台/Bash 任务中运行**，否则 LLM 交互输出被吞会导致死锁
+- **让位式 LLM 交互（v2.43.0）** — git-sync 包含两处 LLM 决策点（文件筛除、敏感脱敏），采用**让位式握手**：遇到决策点时写 resume 状态文件 + `exit 3` 退出，把控制权交还调用方（AI 助手）。调用方写入决策文件后**重跑同一命令**，git-sync 检测 resume 从当前环节续跑，不从头开始。**不再进程内轮询等待**（旧版 v2.42.0 的 120s 轮询会占用控制权导致卡死，已废弃）
+- **断点续跑** — `resume_{name}.json` 记录让位环节（`file_filter` / `sensitive_scan`），重跑时跳过已完成步骤。决策消费成功后 resume 自动清除
 - **自动检测类型** — 自动识别 skill（`_meta.json`）或 agent（rglob 扫描含 `__version__` 的 `__init__.py`，任意包目录名均可，不硬编码），分别走不同发布流程
 - **`all` 模式** — `git-sync all` 遍历配置的全部仓库项目（默认 skill 仓库 + agent 仓库，仓库名/路径由 `config.json` 的 `repos` 注册表决定）
 - **网络依赖** — 推送 Gitee/GitHub/ClawHub/SkillHub/PyPI 需要可用网络连接，超时阈值 60 秒
@@ -59,8 +60,8 @@ data_dir_compliance: true
 - **路径统一管理（`_paths.py`）** —— 所有路径变量（技能目录、数据目录、仓库路径、临时目录等）在 `scripts/_paths.py` 统一定义，其他脚本一律 `from _paths import ...` 引用，不各自写死；仓库路径由 `config.json` 的 `repos` 注册表配置，`get_work_repo(type)` 动态解析
 - **路径由 manifest 统一管理** —— 每个条目记录 `source_path`（源路径）+ `repo_path`（仓库内路径），skill 和 agent 统一走同一套逻辑
 - **`all` 批量模式** —— 遍历全部 skills 和 agents 逐个同步
-- **LLM 文件过滤** —— 同步前扫描源文件 → 全量打印文件列表 + 规则 → 要求调用方（AI 助手）输出决策 JSON → 只复制允许的文件
-- **LLM 脱敏（强制）** —— 同步后强制脱敏敏感信息（邮箱/token/路径/本地路径），无跳过选项。调用方（AI 助手）根据扫描发现 + 脱敏引导规则逐文件判断保留或脱敏
+- **LLM 文件过滤（让位式）** —— 同步前扫描源文件 → 全量打印文件列表 + 规则 → **写 resume 状态 + exit 3 让位** → 调用方（AI 助手）写 `file_filter_{name}.decisions.json` 决策 → 重跑续跑 → 只复制允许的文件
+- **LLM 脱敏（强制，让位式）** —— 同步后强制脱敏敏感信息（邮箱/token/路径/本地路径），无跳过选项。扫描发现敏感信息后 **exit 3 让位**，调用方写 `sensitive_scan_{name}.decisions.json` 后重跑，从脱敏环节续跑（不重复文件过滤与同步）
 - **版本号三方对比** —— `_meta.json` / `SKILL.md` frontmatter / changelog
 - **SKILL.md 规范审查** —— 内联审计（版本一致性 + R-23 脚本引用检查）
 - **ZIP 打包 + HTML 索引** —— 生成安装包 + 可视化索引页
@@ -156,8 +157,8 @@ python "$SKILLS_DIR/git-sync/scripts/git-sync.py" workday-calendar --push-only
 2. **安全校验** → 输入 目标路径 + skill 名称 → 输出 校验通过/拒绝 — 检查目标路径合法性、skill 名称白名单
 3. **清单检查 + 路径解析** → 输入 manifest.json → 输出 同步状态 — 读取 manifest 条目获取 source_path/repo_path，无则按 type 走默认路径
 4. **版本号对比** → 输入 仓库版本 v.s. 本地源文件 → 输出 升级/跳过/冲突 — 读取 `_meta.json`（skill）或 `__init__.py`（agent），版本号自动归一化 PEP 440
-5. **LLM 文件过滤** → 输入 源目录 → 输出 允许文件列表 — 扫描源目录 → **全量打印文件列表到 stdout** → 调用方（AI 助手）在回复中输出决策 JSON → 只复制允许的文件到 workrepo
-6. **敏感信息脱敏（强制）** → 输入 工作仓库文件 → 输出 脱敏后的副本 — 扫描邮箱/token/IP 并强制替换。全自动 LLM 决策，无跳过选项
+5. **LLM 文件过滤** → 输入 源目录 → 输出 允许文件列表 — 扫描源目录 → 全量打印文件列表 + 决策路径 → **写 resume（phase=file_filter）+ exit 3 让位** → 调用方写 `file_filter_{name}.decisions.json` 后重跑，从本环节续跑 → 只复制允许的文件到 workrepo
+6. **敏感信息脱敏（强制）** → 输入 工作仓库文件 → 输出 脱敏后的副本 — 扫描邮箱/token/IP，发现敏感信息则 **exit 3 让位**，调用方写 `sensitive_scan_{name}.decisions.json` 后重跑。**断点续跑**：resume.phase=sensitive_scan 时跳过文件过滤与同步，直接从脱敏环节继续
 7. **更新 README** → 输入 workrepo → 输出 更新后的 README.md — 按仓库类型全量扫描（skill 仓库扫技能目录、agent 仓库扫智能体目录），重新生成 README.md（技能表格 + 智能体表格）
 8. **提交推送** → 输入 提交信息 → 输出 推送状态 — git add/commit/push 到码云 + GitHub
 9. **ZIP 打包** → 输入 技能目录 → 输出 .zip 文件 + index.html — 将 skill 目录打包为 .zip（仅 skill，agent 跳过）

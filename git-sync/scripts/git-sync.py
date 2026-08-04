@@ -22,6 +22,7 @@ from _paths import (
     TEMP_DIR,
     temp_scan_path, temp_scan_decisions_path,
     temp_filter_scan_path, temp_filter_decisions_path,
+    resume_state_path,
     get_work_repo, get_repo_config, get_repo_name,
 )
 
@@ -120,6 +121,39 @@ def run_git(*args, workdir=None, check=True):
         ret = subprocess.CompletedProcess(args=cmd, returncode=-1,
                                           stdout='', stderr='TIMEOUT')
         return ret
+
+# ── LLM 决策让位状态管理（v2.43.0 让位式握手）──────────────────────────────
+# 设计：skill-standardization 的 sys.exit(2) 让位模式。
+# git-sync 遇到 LLM 决策点时不再进程内轮询占用控制权（旧版会卡死），
+# 而是写 resume 状态文件 + sys.exit(3) 让位，把控制权交还调用方（AI 助手）。
+# 调用方写决策文件后重跑 `python git-sync.py <name>`，main() 检测 resume
+# 状态跳过已完成步骤，从当前环节继续（断点续跑）。
+EXIT_DECISION_WAIT = 3   # 让位退出码：等待 LLM 决策文件
+
+def _save_resume(name: str, phase: str, **extra) -> Path:
+    """记录让位前卡在哪个环节 + 恢复上下文。返回状态文件路径。"""
+    import time as _t
+    state = {"name": name, "phase": phase, "ts": _t.strftime("%Y-%m-%d %H:%M:%S")}
+    state.update(extra)
+    p = resume_state_path(name)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    return p
+
+def _load_resume(name: str):
+    """读取 resume 状态；不存在或损坏返回 None。"""
+    p = resume_state_path(name)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+def _clear_resume(name: str):
+    """决策消费成功后清理 resume 状态。"""
+    p = resume_state_path(name)
+    p.unlink(missing_ok=True)
 
 # ── 步骤 1：检查维护清单 ─────────────────────────────────────────────────────
 def step_manifest(skill_name: str, version: str, repo_name=None):
@@ -473,6 +507,7 @@ def step_sensitive_scan(skill_name: str, repo_skill_dir: Path):
         print(f"  ✅ 决策已执行，涉及 {len(desensitized_files)} 个文件")
         scan_out.unlink(missing_ok=True)
         decisions.unlink(missing_ok=True)
+        _clear_resume(skill_name)
         return desensitized_files
 
     # ── 无决策文件 → 打印发现 + 引导 → 等 LLM 写 decision → 自动继续 ──
@@ -508,7 +543,7 @@ def step_sensitive_scan(skill_name: str, repo_skill_dir: Path):
     print("- 私钥内容（PEM 格式）")
     print()
     print("以下情况可保留（keep）：")
-    print("- 公开署名（如 LICENSE/README 中的 wUwproject）")
+    print("- 公开署名（如 LICENSE/README 中的 [username-redacted]）")
     print("- 开源项目的公开联系邮箱")
     print("- 文档中的示例路径或占位信息")
     print()
@@ -520,16 +555,17 @@ def step_sensitive_scan(skill_name: str, repo_skill_dir: Path):
     print()
     # 生成辅助决策脚本
     helper_script = TEMP_DIR / f"write_sensitive_decision_{skill_name}.py"
-    scan_json = json.dumps(d, ensure_ascii=False)
     helper_content = (
         f'"""\ngit-sync 敏感扫描决策写入器\n'
-        f'决策输出：{decisions}\n'
+        f'扫描文件：{json.dumps(str(scan_out))}\n'
+        f'决策输出：{json.dumps(str(decisions))}\n'
         f'"""\n'
         f'import json, sys\n'
-        f'scan = json.loads("""{scan_json}""")\n'
+        f'# 直接读扫描文件，避免把 JSON 嵌入源码（Windows 路径 \\U 转义爆炸）\n'
+        f'scan = json.load(open({json.dumps(str(scan_out))}, encoding="utf-8"))\n'
         f'keep_list = json.loads(sys.argv[1]) if len(sys.argv) > 1 else []\n'
         f'decisions = {{e["file"]: ("keep" if e["file"] in keep_list else "sanitize") for e in scan}}\n'
-        f'with open(r"{decisions}", "w", encoding="utf-8") as f:\n'
+        f'with open({json.dumps(str(decisions))}, "w", encoding="utf-8") as f:\n'
         f'    json.dump(decisions, f, indent=2, ensure_ascii=False)\n'
         f'ok = sum(1 for v in decisions.values() if v == "keep")\n'
         f'san = sum(1 for v in decisions.values() if v == "sanitize")\n'
@@ -547,44 +583,16 @@ def step_sensitive_scan(skill_name: str, repo_skill_dir: Path):
     print(f"等待决策文件写入后自动继续...")
     print("#" * 60)
 
-    # 等待 decision 文件出现（超时 120s 后全部脱敏保安全）
-    import time as _t
-    waited = 0
-    timeout = 120
-    while not decisions.exists() and waited < timeout:
-        _t.sleep(2)
-        waited += 2
-        if waited % 10 == 0:
-            log("4.5", 8, f"等待敏感决策文件... ({waited}s)", "warn")
-
-    if decisions.exists():
-        try:
-            decisions_data = json.loads(decisions.read_text(encoding="utf-8"))
-            ok_count = sum(1 for v in decisions_data.values() if v == "keep")
-            sanitize_count = sum(1 for v in decisions_data.values() if v == "sanitize")
-            print(f"  ✅ LLM 决策：{ok_count} 处保留 / {sanitize_count} 处脱敏")
-        except Exception as e:
-            log("4.5", 8, f"决策解析失败: {e}，默认全部脱敏", "warn")
-            decisions_data = {e["file"]: "sanitize" for e in d}
-    else:
-        log("4.5", 8, f"LLM 决策超时 ({timeout}s)，默认全部脱敏保安全", "warn")
-        decisions_data = {e["file"]: "sanitize" for e in d}
-
-    # 将决策写入文件（超时/异常回退路径也需要写，apply 靠这个文件读）
-    with open(decisions, "w", encoding="utf-8") as f:
-        json.dump(decisions_data, f, ensure_ascii=False)
-
-    # 执行脱敏
-    desensitized_files = set()
-    for e in d:
-        desensitized_files.add(repo_skill_dir / e["file"])
-    run_python(scan_py, "apply", str(repo_skill_dir),
-               "--decisions", str(decisions),
-               "--scan-result", str(scan_out))
-    print(f"  ✅ 决策已执行，涉及 {len(desensitized_files)} 个文件")
-    scan_out.unlink(missing_ok=True)
-    decisions.unlink(missing_ok=True)
-    return desensitized_files
+    # ── 让位式握手（v2.43.0）：不再进程内轮询，写 resume + 退出让权 ──
+    # 旧版在此 while 轮询 120s 占用控制权，AI 助手无法并行写决策文件 → 卡死。
+    # 现在保存断点状态后立即退出（exit 3），调用方写决策文件后重跑续跑。
+    # 重跑时决策文件已存在 → 走函数开头 if decisions.exists() 分支执行脱敏。
+    print(f"  ⏸️  已让位（exit {EXIT_DECISION_WAIT}）：请写入决策文件后重跑")
+    print(f"      python {sys.argv[0]} {skill_name}")
+    print(f"      将从脱敏环节继续，不会从头开始。")
+    _save_resume(skill_name, "sensitive_scan",
+                 repo_skill_dir=str(repo_skill_dir))
+    sys.exit(EXIT_DECISION_WAIT)
 
 # ── 步骤 5：更新 README.md ─────────────────────────────────────────────────
 def step_update_readme(repo_name=None, work_repo=None):
@@ -1051,6 +1059,7 @@ def step_llm_file_filter(name: str, src_dir: Path) -> set:
             log("3.7", 8, f"LLM 文件过滤器：{cnt}/{len(tree)} 个文件通过", "ok")
             filter_scan.unlink(missing_ok=True)
             filter_decisions.unlink(missing_ok=True)
+            _clear_resume(name)
             return allowed
         except Exception as e:
             log("3.7", 8, f"LLM 决策解析失败: {e}，默认保留所有文件", "warn")
@@ -1086,18 +1095,18 @@ def step_llm_file_filter(name: str, src_dir: Path) -> set:
         print("## 写入决策文件")
         print(f"请运行以下命令来写入决策文件：")
         helper_script = TEMP_DIR / f"write_filter_decision_{name}.py"
-        scan_json = json.dumps(report, ensure_ascii=False)
         helper_content = (
             f'"""\ngit-sync 文件筛除决策写入器\n'
-            f'扫描文件：{filter_scan}\n'
-            f'决策输出：{filter_decisions}\n'
+            f'扫描文件：{json.dumps(str(filter_scan))}\n'
+            f'决策输出：{json.dumps(str(filter_decisions))}\n'
             f'"""\n'
             f'import json, sys\n'
-            f'scan = json.loads("""{scan_json}""")\n'
+            f'# 直接读扫描文件，避免把 JSON 嵌入源码（Windows 路径 \\U 转义爆炸）\n'
+            f'scan = json.load(open({json.dumps(str(filter_scan))}, encoding="utf-8"))\n'
             f'exclude = json.loads(sys.argv[1]) if len(sys.argv) > 1 else []\n'
             f'allow = [e["path"] for e in scan["files"] if e["path"] not in exclude]\n'
             f'decisions = {{"allow": allow, "exclude": exclude}}\n'
-            f'with open(r"{filter_decisions}", "w", encoding="utf-8") as f:\n'
+            f'with open({json.dumps(str(filter_decisions))}, "w", encoding="utf-8") as f:\n'
             f'    json.dump(decisions, f, indent=2, ensure_ascii=False)\n'
             f'print(f"决策已写入 ({{len(allow)}} 个文件，排除 {{len(exclude)}} 个)")'
         )
@@ -1108,38 +1117,17 @@ def step_llm_file_filter(name: str, src_dir: Path) -> set:
         print(f"  python {helper_script} '[]'")
         print("#" * 60)
         print(f"决策文件路径: {filter_decisions}")
-        print(f"等待决策文件写入后自动继续...")
-
-
-        # 等待 decision 文件出现（超时 120s 后全量保留）
-        import time as _t
-        waited = 0
-        timeout = 120
-        while not filter_decisions.exists() and waited < timeout:
-            _t.sleep(2)
-            waited += 2
-            if waited > 0 and waited % 10 == 0:
-                log("3.7", 8, f"等待 decision 文件... ({waited}s)", "warn")
-
-        if not filter_decisions.exists():
-            log("3.7", 8, f"LLM 决策超时 ({timeout}s)，全量保留所有文件", "warn")
-            filter_scan.unlink(missing_ok=True)
-            return set(rel for d in tree for rel in [d["path"]])
-
-        # 文件出现 → 读取并继续
-        try:
-            decisions = json.loads(filter_decisions.read_text(encoding="utf-8"))
-            allowed = set(decisions.get("allow", []))
-            cnt = len(allowed)
-            log("3.7", 8, f"文件筛除通过：{cnt}/{len(tree)} 个文件", "ok")
-            filter_scan.unlink(missing_ok=True)
-            filter_decisions.unlink(missing_ok=True)
-            return allowed
-        except Exception as e:
-            log("3.7", 8, f"决策解析失败: {e}，默认保留所有文件", "warn")
-            filter_scan.unlink(missing_ok=True)
-            filter_decisions.unlink(missing_ok=True)
-            return set(rel for d in tree for rel in [d["path"]])
+        print(f"写入格式: {{\"allow\": [\"path1\", \"path2\"], \"exclude\": [...]}}")
+        print()
+        # ── 让位式握手（v2.43.0）：不再进程内轮询，写 resume + 退出让权 ──
+        # 旧版在此 while 轮询 120s 占用控制权，AI 助手无法并行写决策文件 → 卡死。
+        # 现在保存断点状态后立即退出（exit 3），调用方写决策文件后重跑续跑。
+        # 重跑时决策文件已存在 → 走函数开头 if filter_decisions.exists() 分支。
+        print(f"  ⏸️  已让位（exit {EXIT_DECISION_WAIT}）：请写入决策文件后重跑")
+        print(f"      python {sys.argv[0]} {name}")
+        print(f"      将从文件筛除环节继续，不会从头开始。")
+        _save_resume(name, "file_filter", src_dir=str(src_dir))
+        sys.exit(EXIT_DECISION_WAIT)
 
 # ── 新步骤：PyPI / ClawHub / SkillHub / Release ──────────────────────────
 
@@ -1266,8 +1254,8 @@ if os.path.exists(changelog_p):
         LD += "{BS}n{BS}n---{BS}n{BS}n## 更新说明{BS}n{BS}n" + _vc
 setup(name="{pypi_name}",version=V,description="{name} — AI Agent",
       long_description=LD,long_description_content_type="text/markdown",
-      author="Ldxs (wUwproject)",author_email="wuwofc@yeah.net",
-      url="https://github.com/Ldxs001/maby_agent",
+      author="Ldxs ([username-redacted])",author_email="[email-redacted]",
+      url="https://github.com/[username-redacted]/maby_agent",
       packages=["{pkg_dir}"],include_package_data=True,
       python_requires=">=3.10",install_requires=REQ,
       entry_points={{"console_scripts":["{pypi_name}=main:main"]}},
@@ -1339,11 +1327,11 @@ def step_release_create(name: str, typ: str, version: str):
         _rc = _cfg.get("repos", {}).get("maby_skills" if typ=="skill" else "maby_agent", {})
         _g = _rc.get("gitee", {})
         _h = _rc.get("github", {})
-        GITEE = f"{_g.get('user','wUwproject')}/{_g.get('repo','maby_skills')}"
-        GITHUB = f"{_h.get('user','Ldxs001')}/{_h.get('repo','maby_skills')}"
+        GITEE = f"{_g.get('user','[username-redacted]')}/{_g.get('repo','maby_skills')}"
+        GITHUB = f"{_h.get('user','[username-redacted]')}/{_h.get('repo','maby_skills')}"
     except:
-        GITEE = "wUwproject/maby_skills"
-        GITHUB = "Ldxs001/maby_skills"
+        GITEE = "[username-redacted]/maby_skills"
+        GITHUB = "[username-redacted]/maby_skills"
 
     _rel_repo = get_work_repo(typ)
     tag = f"v{version}" if typ=="agent" else f"{name}-v{version}"
@@ -1584,25 +1572,48 @@ def main():
             print(line)
         return
 
+    # ── 断点续跑检测（v2.43.0 让位式握手）──────────────────────────────
+    # LLM 决策让位（exit 3）后调用方写决策文件并重跑，此处跳过已完成步骤：
+    #   resume.phase == "file_filter"      → 跳过 manifest/version/normalize，
+    #                                        直接进文件过滤消费（决策文件已存在）
+    #   resume.phase == "sensitive_scan"   → 跳过 manifest/version/normalize/
+    #                                        文件过滤/同步，直接用已同步目录
+    #                                        从脱敏环节继续
+    resume = _load_resume(name)
+    resume_phase = resume.get("phase") if resume else None
+    resumed = resume_phase is not None
+    if resumed:
+        log(4, 8, f"断点续跑：跳过前置步骤，从 {resume_phase} 环节继续", "ok")
+
     # 静默执行各步骤，收集日志
     QUIET_MODE = True
     import contextlib
     with open(os.devnull, 'w', encoding='utf-8') as _null:
         with contextlib.redirect_stdout(_null), contextlib.redirect_stderr(_null):
-            step_manifest(name, version, repo_name=get_repo_name(typ))
-            compare_result = step_version_compare(name, version, work_repo_subdir)
+            if not resumed:
+                step_manifest(name, version, repo_name=get_repo_name(typ))
+                compare_result = step_version_compare(name, version, work_repo_subdir)
 
-            if is_skill:
-                step_normalize_meta(meta_file, name, version)
+                if is_skill:
+                    step_normalize_meta(meta_file, name, version)
 
-            # 步骤 4：同步文件（版本相同时跳过）
-            skipped_sync = (compare_result == "skip_sync")
+            # 步骤 4：同步文件（版本相同时跳过；断点续跑时已同步过）
+            if not resumed:
+                skipped_sync = (compare_result == "skip_sync")
+            else:
+                skipped_sync = False
             if skipped_sync:
                 log(4, 8, "跳过文件同步（版本相同）", "skip")
                 repo_skill_dir = WORK_REPO / work_repo_subdir
+            elif resume_phase == "sensitive_scan":
+                # 脱敏断点：文件已在首次运行同步完毕，直接用 resume 记录的目标目录
+                repo_skill_dir = Path(resume["repo_skill_dir"])
+                log(4, 8, f"文件已同步，直接使用: {repo_skill_dir}", "ok")
             else:
                 log(4, 8, "同步文件到工作仓库...")
                 # ── LLM 交互：恢复 stdout 以便 WorkBuddy 看到输出并写决策文件 ──
+                # file_filter 断点重跑时决策文件已存在，step_llm_file_filter
+                # 直接消费返回，不会再次让位。
                 _saved_out = sys.stdout
                 sys.stdout = sys.__stdout__ if sys.__stdout__ else _saved_out
                 try:
