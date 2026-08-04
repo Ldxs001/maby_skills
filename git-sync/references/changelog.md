@@ -1,3 +1,17 @@
+## [2.45.0] - 2026-08-04
+
+### 修复：sync_files 硬编码 skills/ 前缀导致嵌套发布
+
+- **根因**：sync_files() 目标路径写死 `work_repo / 'skills' / name`，只适配
+  workbuddy-skills（skills/ 子目录结构）；maby_skills 是顶层结构（技能在仓库根），
+  导致自推送时新版写到 skills/<name> 嵌套副本，commit 却只提交顶层 → 双份版本分裂
+- **修复**：sync_files 增加 subdir 参数，目标路径 = work_repo / subdir，
+  由调用方传入 manifest/config 解析的 work_repo_subdir（顶层或 skills/ 子目录由
+  仓库配置决定，不再硬编码）；不传时回退顶层
+- **验证**：三场景 PASS（顶层/子目录/默认回退）
+- **教训**：仓库目录结构（顶层 vs skills/ 子目录）是用户配置，必须从 manifest
+  repo_path 读取，禁止在函数内硬编码
+
 ## [2.44.0] - 2026-08-04
 
 ### 安全硬约束：脱敏强制（severity 分级禁 keep）

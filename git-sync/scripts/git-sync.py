@@ -416,10 +416,16 @@ def _ignore_patterns(path, names):
                     ignored.add(name); break
     return ignored
 
-def sync_files(skill_name: str, skills_dir: Path, work_repo: Path, allowed_files: set = None):
-    """用 Python 逐个复制文件。只复制 allowed_files 集合中的文件（全部保留时传 None）"""
+def sync_files(skill_name: str, skills_dir: Path, work_repo: Path,
+               allowed_files: set = None, subdir: str = None):
+    """用 Python 逐个复制文件。只复制 allowed_files 集合中的文件（全部保留时传 None）
+
+    v2.45.0 修复：目标子目录不再硬编码 'skills/' 前缀。
+    仓库结构由 manifest/config 的 repo_path 决定（顶层或 skills/ 子目录），
+    调用方通过 subdir 传入；不传时回退到顶层（技能名在仓库根）。
+    """
     src = skills_dir / skill_name
-    dst = work_repo / "skills" / skill_name
+    dst = work_repo / (subdir or skill_name)
     if dst.exists():
         shutil.rmtree(dst)
     os.makedirs(dst, exist_ok=True)
@@ -1621,7 +1627,8 @@ def main():
                 finally:
                     sys.stdout = _saved_out
                 if is_skill:
-                    repo_skill_dir = sync_files(name, SKILLS_DIR, WORK_REPO, allowed)
+                    repo_skill_dir = sync_files(name, SKILLS_DIR, WORK_REPO, allowed,
+                                                subdir=work_repo_subdir)
                 else:
                     dst = WORK_REPO / work_repo_subdir
                     if dst.exists(): shutil.rmtree(dst)
