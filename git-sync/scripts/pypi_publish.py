@@ -41,12 +41,13 @@ if os.path.exists(changelog_path):
     with open(changelog_path, encoding="utf-8") as f:
         changelog_content = f.read()
     # 提取当前版本号对应的 changelog 区块
+    # v2.45.2: 模板内换行须写成 \\n 双反斜杠，生成 setup.py 时才是 \\n 字面
     import re
     version_escaped = re.escape(VERSION)
     m = re.search(r"##\\s*\\[" + version_escaped + r"\\].*?(?=\\n##\\s*\\[|\\Z)", changelog_content, re.DOTALL)
     if m:
         version_changelog = m.group(0).strip()
-        LONG_DESC += "\n\n---\n\n## 更新说明\n\n" + version_changelog
+        LONG_DESC += "\\n\\n---\\n\\n## 更新说明\\n\\n" + version_changelog
 
 setup(
     name="{pypi_name}",
@@ -107,6 +108,13 @@ def main():
     # 写入 MANIFEST.in
     with open(os.path.join(build_dir, "MANIFEST.in"), "w", encoding="utf-8") as f:
         f.write(MANIFEST_IN_TEMPLATE)
+
+    # 覆盖项目自带 pyproject.toml：隔离构建用固定 build-system，避免 setuptools
+    # 自动发现误判多顶层包（如 data/ 目录）导致 "Multiple top-level packages" 构建被拒
+    # （v2.45.2 修复）
+    with open(os.path.join(build_dir, "pyproject.toml"), "w", encoding="utf-8") as f:
+        f.write('[build-system]\nrequires = ["setuptools>=64", "wheel"]\n'
+                'build-backend = "setuptools.build_meta"\n')
 
     # 读取 PyPI token：优先 ~/.pypirc（PyPI 官方凭证），其次 PYPI_TOKEN 环境变量。
     # v2.45.1 修复：原逻辑从 GitHub remote 提取 token（gho_*）当 PyPI 凭证——与 PyPI

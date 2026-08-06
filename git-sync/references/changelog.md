@@ -1,3 +1,12 @@
+## [2.45.2] - 2026-08-06
+
+### 修复：pypi_publish.py 独立脚本 2 个构建 bug（structured-writer 1.6.0b0 发布时暴露）
+
+- **多顶层包构建被拒**：pypi_publish.py copytree 保留项目自带 pyproject.toml，setuptools 自动发现命中 `data/` + `structured_writer/` → `Multiple top-level packages` 拒绝构建。**修复**：隔离构建目录覆盖写固定 build-system 的 pyproject.toml（与 git-sync.py 内联 step_pypi_publish 一致）
+- **模板 `\n` 转义错误**：SETUP_PY_TEMPLATE 里 `LONG_DESC += "\n\n---..."` 的 `\n` 在模板解析时变成真实换行 → 生成 setup.py 语法错误 `unterminated string literal`。**修复**：写成 `\\n`（模板双反斜杠，生成时单反斜杠）
+- **验证**：structured-writer 1.6.0b0 → PyPI `structured-writer-ldxs` 1.6.0b0 上传成功（releases 列表确认 whl）
+- **教训**：独立脚本与主脚本（git-sync.py step_pypi_publish）存在模板双份实现，前者是遗留旧版——发布异常时优先排查双份实现的差异；模板内所有字面 `\n` 必须双写
+
 ## [2.45.1] - 2026-08-06
 
 ### 修复：PyPI 发布链路 2 个 bug（structured-writer v1.5.0 发布时暴露）
