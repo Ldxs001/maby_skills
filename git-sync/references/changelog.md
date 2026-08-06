@@ -1,3 +1,21 @@
+## [2.45.1] - 2026-08-06
+
+### 修复：PyPI 发布链路 2 个 bug（structured-writer v1.5.0 发布时暴露）
+
+- **PyPI token 读取错误**：pypi_publish.py 打印声称"尝试 ~/.pypirc"，实际代码从
+  GitHub remote 提取 token（`https://user:token@github.com/...`）当 PyPI 凭证——
+  GitHub token（`gho_*`）与 PyPI token（`pypi-*`）类型不符，上传必失败；且
+  .pypirc 的 password 从未被读取。**修复**：优先读 `~/.pypirc` 的 `[pypi] password`
+  （PyPI 官方凭证），其次 `PYPI_TOKEN` 环境变量，移除 GitHub remote 提取逻辑
+- **step_pypi_publish NameError**：setup.py 模板内联 `{BS}`（反斜杠变量）只在生成
+  的 setup.py 里定义 `BS=chr(92)`，f-string 求值时 git-sync.py 函数作用域无 `BS` →
+  `NameError: name 'BS' is not defined` 中断发布。**修复**：函数内 f-string 前补
+  `BS = chr(92)`（两处重复定义均补）
+- **验证**：structured-writer v1.5.0 → PyPI `structured-writer-ldxs` 1.5.0 上传成功
+  （twine returncode 0 + pypi.org JSON API 确认）
+- **教训**：发布工具自身必须用真实 PyPI 凭证路径（.pypirc）跑通一次真实发布，
+  不能停留在"打印声称"的层面；f-string 模板内嵌变量必须在模板求值作用域定义
+
 ## [2.45.0] - 2026-08-04
 
 ### 修复：sync_files 硬编码 skills/ 前缀导致嵌套发布

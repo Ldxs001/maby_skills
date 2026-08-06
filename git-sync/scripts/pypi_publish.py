@@ -54,9 +54,9 @@ setup(
     description="{name} — AI Agent",
     long_description=LONG_DESC,
     long_description_content_type="text/markdown",
-    author="Ldxs ([username-redacted])",
-    author_email="[email-redacted]",
-    url="https://github.com/[username-redacted]/workbuddy-skills",
+    author="Ldxs (wUwproject)",
+    author_email="wuwofc@yeah.net",
+    url="https://github.com/Ldxs001/workbuddy-skills",
     packages=find_packages(),
     include_package_data=True,
     python_requires=">=3.10",
@@ -108,26 +108,22 @@ def main():
     with open(os.path.join(build_dir, "MANIFEST.in"), "w", encoding="utf-8") as f:
         f.write(MANIFEST_IN_TEMPLATE)
 
-    # 读取 PyPI token（支持 HTTPS 和 SSH remote）
-    remote_url = subprocess.run(
-        ["git", "remote", "get-url", "origin"],
-        cwd=str(WORK_REPO),
-        capture_output=True, text=True
-    ).stdout.strip()
+    # 读取 PyPI token：优先 ~/.pypirc（PyPI 官方凭证），其次 PYPI_TOKEN 环境变量。
+    # v2.45.1 修复：原逻辑从 GitHub remote 提取 token（gho_*）当 PyPI 凭证——与 PyPI
+    # token（pypi-*）类型不符，上传必失败；且打印声称读 .pypirc 实际未读，现纠正。
     token = ""
-    if "//" in remote_url and "@" in remote_url:
-        # HTTPS: https://user:[email-redacted]/...
-        token_part = remote_url.split("//")[1].split("@")[0]
-        if ":" in token_part:
-            token = [credential-redacted](":")[1]
-
+    try:
+        import configparser
+        _cp = configparser.ConfigParser()
+        if _cp.read(str(os.path.expanduser("~/.pypirc"))):
+            token = _cp.get("pypi", "password", fallback="")
+    except Exception:
+        token = ""
     if not token:
-        print("  ⚠️  无法获取 GitHub token，尝试 ~/.pypirc")
-        # check env
         token = os.environ.get("PYPI_TOKEN", "")
 
     if not token:
-        print("  ❌ 未找到 PyPI token")
+        print("  ❌ 未找到 PyPI token（~/.pypirc 或 PYPI_TOKEN 均无）")
         print("  设置方式: set PYPI_TOKEN=pypi-xxxxx")
         sys.exit(1)
 

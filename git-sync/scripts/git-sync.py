@@ -549,7 +549,7 @@ def step_sensitive_scan(skill_name: str, repo_skill_dir: Path):
     print("- 私钥内容（PEM 格式）")
     print()
     print("以下情况可保留（keep）：")
-    print("- 公开署名（如 LICENSE/README 中的 [username-redacted]）")
+    print("- 公开署名（如 LICENSE/README 中的 wUwproject）")
     print("- 开源项目的公开联系邮箱")
     print("- 文档中的示例路径或占位信息")
     print()
@@ -1158,6 +1158,9 @@ def step_pypi_publish(name: str, version: str, src_dir: Path):
                 if (d / "__init__.py").exists(): pkg_dir = d.name; break
     pkg_dir = pkg_dir or "rag_assistant"
 
+    # setup.py 模板中 {BS} 需要反斜杠变量（v2.45.1 修复：原实现漏定义 BS 导致 NameError）
+    BS = chr(92)
+
     # pyproject.toml（防止 setuptools>=61 Dynamic description bug）
     _P(str(build_dir / "pyproject.toml")).write_text(textwrap.dedent(f"""\
 [build-system]
@@ -1222,6 +1225,9 @@ def step_pypi_publish(name: str, version: str, src_dir: Path):
                 if (d / "__init__.py").exists(): pkg_dir = d.name; break
     pkg_dir = pkg_dir or "rag_assistant"
 
+    # setup.py 模板中 {BS} 需要反斜杠变量（v2.45.1 修复：原实现漏定义 BS 导致 NameError）
+    BS = chr(92)
+
     # pyproject.toml（防止 setuptools>=61 Dynamic description bug）
     _P(str(build_dir / "pyproject.toml")).write_text(textwrap.dedent(f"""\
 [build-system]
@@ -1260,8 +1266,8 @@ if os.path.exists(changelog_p):
         LD += "{BS}n{BS}n---{BS}n{BS}n## 更新说明{BS}n{BS}n" + _vc
 setup(name="{pypi_name}",version=V,description="{name} — AI Agent",
       long_description=LD,long_description_content_type="text/markdown",
-      author="Ldxs ([username-redacted])",author_email="[email-redacted]",
-      url="https://github.com/[username-redacted]/maby_agent",
+      author="Ldxs (wUwproject)",author_email="wuwofc@yeah.net",
+      url="https://github.com/Ldxs001/maby_agent",
       packages=["{pkg_dir}"],include_package_data=True,
       python_requires=">=3.10",install_requires=REQ,
       entry_points={{"console_scripts":["{pypi_name}=main:main"]}},
@@ -1333,11 +1339,11 @@ def step_release_create(name: str, typ: str, version: str):
         _rc = _cfg.get("repos", {}).get("maby_skills" if typ=="skill" else "maby_agent", {})
         _g = _rc.get("gitee", {})
         _h = _rc.get("github", {})
-        GITEE = f"{_g.get('user','[username-redacted]')}/{_g.get('repo','maby_skills')}"
-        GITHUB = f"{_h.get('user','[username-redacted]')}/{_h.get('repo','maby_skills')}"
+        GITEE = f"{_g.get('user','wUwproject')}/{_g.get('repo','maby_skills')}"
+        GITHUB = f"{_h.get('user','Ldxs001')}/{_h.get('repo','maby_skills')}"
     except:
-        GITEE = "[username-redacted]/maby_skills"
-        GITHUB = "[username-redacted]/maby_skills"
+        GITEE = "wUwproject/maby_skills"
+        GITHUB = "Ldxs001/maby_skills"
 
     _rel_repo = get_work_repo(typ)
     tag = f"v{version}" if typ=="agent" else f"{name}-v{version}"
