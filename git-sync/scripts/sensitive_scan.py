@@ -463,7 +463,7 @@ def cmd_apply(args):
     v2.44.0 硬约束（方案 A）：severity=critical/high 的发现禁止 keep。
     邮箱（high）、Token/私钥（critical）必须 sanitize——"脱敏强制"是代码级
     铁律，不是 LLM 可选项。keep 仅允许 medium 及以下的公开署名类豁免
-    （如 LICENSE/README 的 [username-redacted] 署名、占位符）。
+    （如 LICENSE/README 的 wUwproject 署名、占位符）。
     """
     with open(args.decisions, "r", encoding="utf-8") as f:
         decisions = json.load(f)

@@ -210,7 +210,7 @@ def generate_readme(repo_path, readme_path, repo_name="maby_skills"):
 > **用户智能体仓库** — 由 git-sync 自动同步维护。
 > 最后更新：{today}
 
-{readme_cfg.get('description', '本仓库托管 [username-redacted] 智能体项目，码云（Gitee）和 GitHub 双平台同步。')}
+{readme_cfg.get('description', '本仓库托管 wUwproject 智能体项目，码云（Gitee）和 GitHub 双平台同步。')}
 
 {banner_block}---
 
@@ -284,7 +284,7 @@ def generate_readme(repo_path, readme_path, repo_name="maby_skills"):
     gitee_url = urls['gitee'] or "https://gitee.com/USER/REPO.git"
     github_url = urls['github'] or "https://github.com/USER/REPO.git"
     readme_title = readme_cfg.get('title', 'Maby Skills')
-    readme_desc = readme_cfg.get('description', '本仓库托管 [username-redacted] 技能合集，码云（Gitee）和 GitHub 双平台同步。')
+    readme_desc = readme_cfg.get('description', '本仓库托管 wUwproject 技能合集，码云（Gitee）和 GitHub 双平台同步。')
     readme_repo_name = readme_cfg.get('repo_name', 'maby_skills')
 
     # 构建新的 README.md

@@ -1,3 +1,12 @@
+## [2.45.4] - 2026-08-07
+
+- step_pypi_publish copytree 排除 Windows 保留设备名（nul/con/prn/aux）与 .git，修复构建失败（WinError 87/5）
+
+## [2.45.3] - 2026-08-07
+
+- setup.py 模板新增 project_urls（GitHub/Gitee/Documentation 三链接），PyPI 页面 Project Links 显示双平台仓库链接
+
+
 ## [2.45.2] - 2026-08-06
 
 ### 修复：pypi_publish.py 独立脚本 2 个构建 bug（structured-writer 1.6.0b0 发布时暴露）
@@ -12,7 +21,7 @@
 ### 修复：PyPI 发布链路 2 个 bug（structured-writer v1.5.0 发布时暴露）
 
 - **PyPI token 读取错误**：pypi_publish.py 打印声称"尝试 ~/.pypirc"，实际代码从
-  GitHub remote 提取 token（`https://user:token@github.com/...`）当 PyPI 凭证——
+  GitHub remote 提取 token（`https://user:[email-redacted]/...`）当 PyPI 凭证——
   GitHub token（`gho_*`）与 PyPI token（`pypi-*`）类型不符，上传必失败；且
   .pypirc 的 password 从未被读取。**修复**：优先读 `~/.pypirc` 的 `[pypi] password`
   （PyPI 官方凭证），其次 `PYPI_TOKEN` 环境变量，移除 GitHub remote 提取逻辑

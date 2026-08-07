@@ -56,7 +56,7 @@ setup(
     long_description=LONG_DESC,
     long_description_content_type="text/markdown",
     author="Ldxs (wUwproject)",
-    author_email="wuwofc@yeah.net",
+    author_email="[email-redacted]",
     url="https://github.com/Ldxs001/workbuddy-skills",
     packages=find_packages(),
     include_package_data=True,

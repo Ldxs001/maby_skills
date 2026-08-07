@@ -1143,8 +1143,11 @@ def step_pypi_publish(name: str, version: str, src_dir: Path):
     pypi_name = f"{name}-ldxs"
     build_dir = Path(tempfile.gettempdir()) / f"pypi_build_{name}_{version}"
     if build_dir.exists(): shutil.rmtree(build_dir)
+    # Windows 保留设备名（nul/con/prn/aux）与常规缓存/版本库一并排除，避免 copytree 失败
     shutil.copytree(src_dir, build_dir,
-                    ignore=shutil.ignore_patterns("__pycache__","*.pyc","dist","build","*.egg-info"))
+                    ignore=shutil.ignore_patterns("__pycache__","*.pyc","dist","build","*.egg-info",
+                                                  "nul","con","prn","aux","NUL","CON","PRN","AUX",
+                                                  ".git",".gitignore"))
     from pathlib import Path as _P
 
     # 检测包目录名
@@ -1210,8 +1213,11 @@ def step_pypi_publish(name: str, version: str, src_dir: Path):
     dev_status = "4 - Beta" if is_prerelease else "5 - Production/Stable"
     build_dir = Path(tempfile.gettempdir()) / f"pypi_build_{name}_{version}"
     if build_dir.exists(): shutil.rmtree(build_dir)
+    # Windows 保留设备名（nul/con/prn/aux）与常规缓存/版本库一并排除，避免 copytree 失败
     shutil.copytree(src_dir, build_dir,
-                    ignore=shutil.ignore_patterns("__pycache__","*.pyc","dist","build","*.egg-info"))
+                    ignore=shutil.ignore_patterns("__pycache__","*.pyc","dist","build","*.egg-info",
+                                                  "nul","con","prn","aux","NUL","CON","PRN","AUX",
+                                                  ".git",".gitignore"))
     from pathlib import Path as _P
 
     # 检测包目录名
@@ -1266,8 +1272,11 @@ if os.path.exists(changelog_p):
         LD += "{BS}n{BS}n---{BS}n{BS}n## 更新说明{BS}n{BS}n" + _vc
 setup(name="{pypi_name}",version=V,description="{name} — AI Agent",
       long_description=LD,long_description_content_type="text/markdown",
-      author="Ldxs (wUwproject)",author_email="wuwofc@yeah.net",
+      author="Ldxs (wUwproject)",author_email="[email-redacted]",
       url="https://github.com/Ldxs001/maby_agent",
+      project_urls={{"GitHub": "https://github.com/Ldxs001/maby_agent",
+                     "Gitee": "https://gitee.com/wUwproject/maby_agent",
+                     "Documentation": "https://github.com/Ldxs001/maby_agent#readme"}},
       packages=["{pkg_dir}"],include_package_data=True,
       python_requires=">=3.10",install_requires=REQ,
       entry_points={{"console_scripts":["{pypi_name}=main:main"]}},
